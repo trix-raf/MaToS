@@ -1,3 +1,12 @@
+"""
+Spelling correction for fingerspelled letter chunks.
+
+    candidates("NME")  ->  [("NAME", score, dist), ("NEE", ...), ...]
+
+Files read at import time (looked up in the CWD, then next to this file):
+    dictionary.tsv   word <TAB> zipf-frequency          (required)
+    names.txt        one name per line, '#' comments    (optional, see below)
+"""
 import csv
 import re
 from functools import lru_cache
@@ -14,8 +23,11 @@ DEL_COST = 0.6          # observed chunk is MISSING a letter (classifier dropped
 SUB_COST = 1.0          # wrong letter (default)
 TRANSPOSE_COST = 0.8    # two adjacent letters swapped
 DIST_WEIGHT = 0.7       # score = prior - DIST_WEIGHT * dist**2
-OOV_SCORE = -3.0        # score for "keep the raw chunk" (names / unknown words)
+RAW_KEEP_SCORE = -1.2   # score of "keep the raw chunk as typed" (names / unknown words).
+                        # A dictionary word must beat this, i.e. be roughly <= 1.6 edits
+                        # away, otherwise the raw chunk wins.
 COMMON_FLOOR = 0.85     # minimum prior for words in _COMMON
+NAME_PRIOR = 0.90       # prior for words listed in names.txt
 
 # Visually confusable fingerspelling pairs get a cheaper substitution.
 # Replace with  -log P(observed | true)  from your classifier's confusion matrix.
@@ -31,16 +43,26 @@ for (_a, _b), _c in _CONFUSABLE.items():
     CONFUSION[(_b, _a)] = _c
 MIN_SUB_COST = min([SUB_COST, *CONFUSION.values()])
 
+# Words the corrector may never *suggest* (a typo turning into "WTF" or "SEX"
+# is worse than leaving it alone). If the signer really spells one of these
+# exactly, it still passes through (dist 0). Extend as you like.
+BLOCKED = {
+    "WTF", "SEX", "SEXY", "SHIT", "FUCK", "DAMN", "ASS", "PORN", "BITCH",
+    "CRAP", "HELL", "DICK", "COCK", "PISS", "SLUT", "WHORE",
+}
+
 
 # ---------------------------------------------------------------------------
-# Dictionary
+# Dictionary / names
 # ---------------------------------------------------------------------------
-def load_dictionary(path="dictionary.tsv"):
+def _find(path):
     p = Path(path)
-    if not p.exists():
-        p = Path(__file__).with_name(path)
+    return p if p.exists() else Path(__file__).with_name(path)
+
+
+def load_dictionary(path="dictionary.tsv"):
     best = {}
-    with open(p) as f:
+    with open(_find(path), encoding="utf-8") as f:
         for row in csv.reader(f, delimiter="\t"):
             if len(row) < 2:
                 continue
@@ -55,10 +77,24 @@ def load_dictionary(path="dictionary.tsv"):
     return words, np.array([best[w] for w in words])
 
 
-DICT_WORDS, DICT_FREQS = load_dictionary()
+def load_names(path="names.txt"):
+    """Personal vocabulary: your name, family, places. These get a high prior
+    so 'LOKY' is never 'corrected' into 'LOOK'."""
+    p = _find(path)
+    if not p.exists():
+        return set()
+    names = set()
+    for line in p.read_text(encoding="utf-8").splitlines():
+        w = line.split("#", 1)[0].upper().replace("'", "").strip()
+        if re.fullmatch(r"[A-Z]+", w):
+            names.add(w)
+    return names
 
-# Zipf-style frequencies. Old code clipped at 7, which flattened every common
-# word (the/is/to/of/...) to exactly 1.0 so they could never be told apart.
+
+DICT_WORDS, DICT_FREQS = load_dictionary()
+NAMES = load_names()
+
+# Zipf-style frequencies, normalised to 0..1.
 FREQ_MAX = max(7.0, float(DICT_FREQS.max()))
 FREQ_NORM = np.clip(DICT_FREQS, 0, FREQ_MAX) / FREQ_MAX
 
@@ -73,16 +109,24 @@ _COMMON = [
     "NAME", "MOM", "DAD", "STORE", "THANK", "PLEASE", "HELP",
 ]
 
-DICT_WORD_SET = set(DICT_WORDS) | set(_COMMON)
-DICT_WORD_SET = {w for w in DICT_WORD_SET if len(w) > 1 or w in ("I", "A")}
-FREQ_LOOKUP = {w: 0.95 for w in _COMMON}
-FREQ_LOOKUP.update({w: float(f) for w, f in zip(DICT_WORDS, FREQ_NORM)})
-FREQ_LOOKUP = {w: v for w, v in FREQ_LOOKUP.items() if w}
+FREQ_LOOKUP = {w: float(f) for w, f in zip(DICT_WORDS, FREQ_NORM)}
+# (The old code set these to 0.95 and then let the dictionary overwrite them,
+#  so COMMON_FLOOR / the _COMMON boost never had any effect.)
+for _w in _COMMON:
+    FREQ_LOOKUP[_w] = max(FREQ_LOOKUP.get(_w, 0.0), COMMON_FLOOR)
+for _w in NAMES:
+    FREQ_LOOKUP[_w] = max(FREQ_LOOKUP.get(_w, 0.0), NAME_PRIOR)
 
-# ---- the fix: bucket by length so we only scan nearby-length words --------
-DICT_BY_LEN = defaultdict(list)
-for w in DICT_WORD_SET:
-    DICT_BY_LEN[len(w)].append(w)
+# Single letters are not words, except I and A.
+DICT_WORD_SET = {w for w in FREQ_LOOKUP if len(w) > 1 or w in ("I", "A")}
+_WORDS = sorted(DICT_WORD_SET)
+
+# Letter-count matrix (n_words x 26) for the vectorised lower bound below.
+_COUNTS = np.zeros((len(_WORDS), 26), dtype=np.int16)
+_lens = np.fromiter((len(w) for w in _WORDS), dtype=np.int64, count=len(_WORDS))
+_codes = np.frombuffer("".join(_WORDS).encode("ascii"), dtype=np.uint8).astype(np.int64) - 65
+np.add.at(_COUNTS, (np.repeat(np.arange(len(_WORDS)), _lens), _codes), 1)
+del _lens, _codes
 
 
 # ---------------------------------------------------------------------------
@@ -94,8 +138,6 @@ def weighted_edit_distance(a, b, cap=2.5):
         return cap + 1
 
     # Row 0: no chars of `a` consumed -> all of b[:j] were DROPPED letters.
-    # (Old code used j * 1.0 here but DEL_COST=0.6 everywhere else, so a
-    #  missing FIRST letter cost 1.0 while a missing later letter cost 0.6.)
     prev = [j * DEL_COST for j in range(lb + 1)]
     prev2 = None
     for i in range(1, la + 1):
@@ -144,13 +186,17 @@ def _candidates_cached(chunk, top_k, max_dist):
     for i in np.nonzero(lb <= max_dist + 1e-9)[0]:
         w = _WORDS[i]
         d = weighted_edit_distance(chunk, w, cap=max_dist)
-        if d <= max_dist:
-            scored.append((w, FREQ_LOOKUP[w] - DIST_WEIGHT * d * d, d))
+        if d > max_dist:
+            continue
+        if d > 0 and w in BLOCKED:
+            continue                    # never *suggest* these
+        scored.append((w, FREQ_LOOKUP[w] - DIST_WEIGHT * d * d, d))
 
-    if not scored:
-        # Nothing plausible: keep the raw chunk (name / unknown word) instead
-        # of forcing the nearest garbage word like the old fallback did.
-        return ((chunk, OOV_SCORE, 0.0),)
+    # The raw chunk always competes unless it already IS a word. Before, it was
+    # only kept when nothing at all was within max_dist, so any name that looked
+    # a bit like a real word (BUDI -> BUD, LOKY -> LOOK) was silently replaced.
+    if chunk not in DICT_WORD_SET:
+        scored.append((chunk, RAW_KEEP_SCORE, 0.0))
 
     scored.sort(key=lambda x: (-x[1], x[2], x[0]))     # fully deterministic
     return tuple(scored[:top_k])
@@ -158,7 +204,7 @@ def _candidates_cached(chunk, top_k, max_dist):
 
 def candidates(chunk, top_k=8, max_dist=2.5):
     """[(word, score, dist), ...] best first. Single letters are NOT special-
-    cased any more: 'T' competes with TO/IT/AT, 'A' with AM/AN/AS, etc."""
+    cased: 'T' competes with TO/IT/AT, 'A' with AM/AN/AS, etc."""
     chunk = re.sub(r"[^A-Z]", "", chunk.upper())
     if not chunk:
         return []

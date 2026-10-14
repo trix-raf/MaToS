@@ -1,0 +1,5 @@
+# Personal vocabulary: one name/place per line. '#' starts a comment.
+# These get a high prior so they are never "corrected" into a similar word.
+LOKY
+SARAH
+INDONESIA

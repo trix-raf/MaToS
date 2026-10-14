@@ -4,6 +4,10 @@ from functools import lru_cache
 
 import numpy as np
 
+MODEL_PATH = "models/qwen2.5-3b-instruct-q4_k_m.gguf"
+N_CTX = 512          # logits_all=True allocates n_ctx * n_vocab floats
+                     # (1024 ctx ~ 620 MB for Qwen's 152k vocab, 512 ~ 310 MB)
+
 _llm = None
 
 
@@ -12,23 +16,116 @@ def get_llm():
     if _llm is None:
         from llama_cpp import Llama          # lazy: guard logic is testable without it
         _llm = Llama(
-            model_path="models/qwen2.5-3b-instruct-q4_k_m.gguf",
-            n_ctx=1024,
+            model_path=MODEL_PATH,
+            n_ctx=N_CTX,
             n_threads=4,
             logits_all=True,                 # needed to score sentences (see sentence_logprob)
             verbose=False,
         )
     return _llm
 
-# Function words the polisher is allowed to insert.
-_ALLOWED_INSERTIONS = {
+
+# ---------------------------------------------------------------------------
+# Words the polisher may insert / substitute
+# ---------------------------------------------------------------------------
+ALLOWED_INSERTIONS = {
     "A", "AN", "THE",
     "IS", "ARE", "WAS", "WERE", "AM", "BE", "BEEN",
+    "DO", "DOES", "DID",
     "TO", "OF", "IN", "ON", "AT", "FOR", "WITH", "BY", "FROM",
     "MY", "YOUR", "HIS", "HER", "THEIR", "OUR", "ITS",
     "I", "YOU", "HE", "SHE", "IT", "WE", "THEY", "ME", "US", "THEM",
     "AND", "OR", "BUT", "SO",
 }
+# original word -> the only replacement allowed (pronoun form before a noun)
+ALLOWED_SUBSTITUTIONS = {"ME": "MY", "I": "MY"}
+
+
+# ---------------------------------------------------------------------------
+# Sentence scoring (used to re-rank spelling candidates)
+# ---------------------------------------------------------------------------
+_LM_PREFIX = "Transcript of a short spoken English sentence:\n"
+
+# Unambiguous apostrophe-less forms (the dictionary strips apostrophes).
+# Deliberately NOT included: ITS, ILL, WERE, WELL, HELL, WED (real words).
+_CONTRACTIONS = {
+    "DONT": "don't", "CANT": "can't", "WONT": "won't", "IM": "I'm", "IVE": "I've",
+    "DIDNT": "didn't", "DOESNT": "doesn't", "ISNT": "isn't", "ARENT": "aren't",
+    "WASNT": "wasn't", "WERENT": "weren't", "COULDNT": "couldn't",
+    "WOULDNT": "wouldn't", "SHOULDNT": "shouldn't", "HAVENT": "haven't",
+    "HASNT": "hasn't", "YOURE": "you're", "THEYRE": "they're",
+    "THATS": "that's", "WHATS": "what's", "HES": "he's", "SHES": "she's",
+}
+
+
+def _lm_text(sentence):
+    """ALL-CAPS text tokenises into odd fragments and is rare in training data,
+    so the LM's opinion of it is weak. Score natural casing instead:
+    'MY NAME IS LOKY' -> 'My name is Loky'."""
+    from autocorrect import NAMES, DICT_WORD_SET
+    out = []
+    for w in sentence.split():
+        if w in _CONTRACTIONS:
+            out.append(_CONTRACTIONS[w])
+        elif w == "I":
+            out.append("I")
+        elif w in NAMES or w not in DICT_WORD_SET:
+            out.append(w.capitalize())           # name / unknown word
+        else:
+            out.append(w.lower())
+    s = " ".join(out)
+    return s[:1].upper() + s[1:]
+
+
+@lru_cache(maxsize=1)
+def _prefix_tokens():
+    return list(get_llm().tokenize(_LM_PREFIX.encode("utf-8"), add_bos=True, special=False))
+
+
+@lru_cache(maxsize=50_000)
+def sentence_logprob(sentence):
+    """Total log P(sentence | prefix) under the LM (natural casing)."""
+    llm = get_llm()
+    prefix = _prefix_tokens()
+    toks = list(llm.tokenize(_lm_text(sentence).encode("utf-8"),
+                             add_bos=False, special=False))
+    if not toks:
+        return 0.0
+    ids = prefix + toks
+    llm.reset()
+    llm.eval(ids)
+    # scores[i] are the logits AFTER consuming ids[i], i.e. they predict ids[i+1]
+    logits = np.asarray(llm.scores[len(prefix) - 1: len(ids) - 1], dtype=np.float32)
+    m = logits.max(axis=1, keepdims=True)
+    lse = m[:, 0] + np.log(np.exp(logits - m).sum(axis=1))
+    chosen = logits[np.arange(len(toks)), toks]
+    return float((chosen - lse).sum())
+
+
+def rerank_with_lm(scored, margin=3.0, weight=0.15):
+    """
+    scored: [(sentence, edit_score), ...] best edit-score first.
+
+    Final score = edit_score + weight * log P_LM(sentence).
+    Only sentences within `margin` edit-score points of the best are shown to
+    the LM (the LM can't plausibly overturn anything further behind, and this
+    keeps latency down). If none are, the spelling score is decisive.
+    Returns (sentence, info).
+    """
+    if not scored:
+        return "", {"rank_source": "score"}
+    top = scored[0][1]
+    pool = [(s, e) for s, e in scored if top - e <= margin]
+    if len(pool) < 2:
+        return scored[0][0], {"rank_source": "confident"}
+    try:
+        lps = [sentence_logprob(s) for s, _ in pool]
+    except Exception as e:                           # never take the pipeline down
+        return scored[0][0], {"rank_source": "lm_error", "lm_error": repr(e)}
+    best = max(range(len(pool)), key=lambda i: (pool[i][1] + weight * lps[i], -i))
+    return pool[best][0], {"rank_source": "lm", "lm_changed": best != 0,
+                           "lm_pool": len(pool)}
+
 
 # ---------------------------------------------------------------------------
 # Old "pick a number" ranker -- kept for experiments, not used by the pipeline
@@ -84,16 +181,17 @@ def rank_sentences(raw_chunks, candidates):
 # ---------------------------------------------------------------------------
 # Grammar polish (LLM proposes, strict validator disposes)
 # ---------------------------------------------------------------------------
-SYSTEM_POLISH = f"""You add missing grammar to ASL fingerspelled English.
+SYSTEM_POLISH = """You add missing grammar to ASL fingerspelled English.
 
 Input is a sequence of correct English words, but function words may be missing
 (articles, copulas, prepositions) and pronouns may have the wrong form.
 
 Your job:
-- Insert missing function words: A, AN, THE, IS, ARE, WAS, WERE, TO, OF, IN,
-  ON, AT, FOR, MY, YOUR, HIS, HER, THEIR, I, YOU, HE, SHE.
+- Insert missing function words: A, AN, THE, IS, ARE, WAS, WERE, AM, DO, DOES,
+  DID, TO, OF, IN, ON, AT, FOR, MY, YOUR, HIS, HER, THEIR, I, YOU, HE, SHE.
 - Fix pronoun forms: ME -> MY (before a noun), I -> MY (before a noun).
 - Do NOT change any content word. NAMED stays NAMED. WORD stays WORD.
+- Do NOT expand or change contractions: DONT stays DONT, CANT stays CANT.
 - Do NOT add new content words.
 - Reply with only the polished sentence.
 
@@ -108,38 +206,57 @@ Output: THANK YOU VERY MUCH
 Example 3:
 Input: I WANT GO STORE
 Output: I WANT TO GO TO THE STORE
+
+Example 4:
+Input: WHAT YOU WANT
+Output: WHAT DO YOU WANT
+
+Example 5:
+Input: I DONT UNDERSTAND
+Output: I DONT UNDERSTAND
 """
+
+
+def _norm_token(t):
+    t = t.replace("'", "").replace("\u2019", "")     # DON'T == DONT (dictionary strips ')
+    return t.strip(string.punctuation).upper()
 
 
 def validate_polish(original_words, polished):
     """
     Accept the LLM output only if it is the original words, in the original
-    order, plus allowed function words (and ME->MY). Returns (tokens, None) on
-    success or (None, reason) on failure.
+    order, plus allowed function words (and ME/I -> MY before another word).
+    Returns (tokens, None) on success or (None, reason) on failure.
 
-    The old check only tested "no illegal words" and "content words still
-    present somewhere", so reordering ("HER IS MY NAME SARAH"), duplication
-    ("MY OF ICE IS OF ICE"), stem swaps (NAME->NAMED), commas and changes to
-    words under 3 letters all got through.
+    Rejects: reordering, duplication of an INSERTED word, stem swaps
+    (NAME->NAMED), dropped words, expanded contractions. Punctuation and
+    apostrophes are normalised away rather than leaked into the output.
+    An original word that is itself repeated ("VERY VERY GOOD") is fine.
     """
-    orig = [w.upper() for w in original_words]
-    toks = [t.strip(string.punctuation).upper() for t in polished.split()]
-    toks = [t for t in toks if t]                # commas etc. are stripped, not kept
+    orig = [_norm_token(w) for w in original_words]
+    toks = [_norm_token(t) for t in polished.split()]
+    toks = [t for t in toks if t]
     if not toks:
         return None, "empty output"
 
     j = 0
+    inserted = []
     for t in toks:
-        if j < len(orig) and (t == orig[j] or ALLOWED_SUBSTITUTIONS.get(orig[j]) == t):
+        if j < len(orig) and t == orig[j]:
             j += 1
+            inserted.append(False)
+        elif (j + 1 < len(orig) and ALLOWED_SUBSTITUTIONS.get(orig[j]) == t):
+            j += 1
+            inserted.append(False)
         elif t in ALLOWED_INSERTIONS:
-            continue
+            inserted.append(True)
         else:
             return None, f"unexpected word or out of order: {t}"
     if j != len(orig):
         return None, "original words lost, changed or reordered"
-    if any(a == b for a, b in zip(toks, toks[1:])):
-        return None, "repeated word"
+    for i in range(len(toks) - 1):
+        if toks[i] == toks[i + 1] and (inserted[i] or inserted[i + 1]):
+            return None, "repeated word"
     return toks, None
 
 
@@ -147,17 +264,16 @@ def grammar_polish(corrected_sentence, raw_chunks=None):
     """
     Returns (final_sentence, source, info)
       source = "llm"       -> LLM added/changed something and passed validation
-      source = "unchanged" -> LLM said it was already fine
-      source = "fallback"  -> LLM output rejected, corrected sentence returned
+      source = "unchanged" -> LLM output was valid and identical to the input
+      source = "fallback"  -> LLM output rejected / LLM error, input returned
+      source = "skipped"   -> too short to polish
     `raw_chunks` is accepted for compatibility but deliberately NOT shown to
     the model: the noisy letters only tempt it to "fix" content words.
     """
     words = corrected_sentence.split()
     if len(words) < 2:
-        return corrected_sentence, "fallback", {"reason": "too short"}
+        return corrected_sentence, "skipped", {"reason": "too short"}
 
-    # Same "Input:/Output:" format as the few-shot examples. (Old code used a
-    # different layout in the user turn than in the examples.)
     user = f"Input: {corrected_sentence}\nOutput:"
     try:
         out = get_llm().create_chat_completion(
@@ -165,7 +281,7 @@ def grammar_polish(corrected_sentence, raw_chunks=None):
                 {"role": "system", "content": SYSTEM_POLISH},
                 {"role": "user", "content": user},
             ],
-            max_tokens=60,
+            max_tokens=max(60, 8 * len(words) + 30),
             temperature=0.0,
             stop=["\n"],
         )
@@ -176,18 +292,15 @@ def grammar_polish(corrected_sentence, raw_chunks=None):
     for prefix in ("Output:", "Polished sentence:", "Answer:"):
         if polished.lower().startswith(prefix.lower()):
             polished = polished[len(prefix):].strip()
+    polished = polished.strip('"')
 
-    upper = polished.upper()
-    lost = [w for w in words
-            if len(w) >= 3 and w.isalpha() and not _survives(w, upper)]
+    toks, why = validate_polish(words, polished)
+    if toks is None:
+        return corrected_sentence, "fallback", {"reason": why, "llm_output": polished}
 
-    if lost:
-        return corrected_sentence, "fallback", {
-            "reason": f"lost content words: {lost}",
-            "llm_output": polished,
-        }
-
-    return polished, "llm", {"llm_output": polished}
+    if toks == [_norm_token(w) for w in words]:
+        return corrected_sentence, "unchanged", {}
+    return " ".join(toks), "llm", {"llm_output": polished}
 
 
 # ---------------------------------------------------------------------------

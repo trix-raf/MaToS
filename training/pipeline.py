@@ -6,9 +6,9 @@ def process_letter_chunks(
     polish=False,
     rank=False,
     top_k_per_chunk=6,
-    top_n_combos=12,
+    top_n_combos=20,
     lm_weight=0.15,
-    lm_margin=1.0,
+    lm_margin=3.0,
 ):
     """
     Returns (corrected, final, combos, info)
@@ -16,13 +16,16 @@ def process_letter_chunks(
       final     : grammar-polished sentence (None unless polish=True)
       combos    : candidate sentences, best edit-score first
       info      : rank_source / polish_source / reasons, for debugging
+
+    lm_weight : final score = edit_score + lm_weight * log P_LM(sentence)
+    lm_margin : only sentences within this many edit-score points of the best
+                are shown to the LM (bigger = more LM calls, more chances to
+                recover a word the edit model ranked low)
     """
     chunks = [c.strip() for c in chunks if c and c.strip()]
     if not chunks:
         return "", None, [], {"reason": "no input"}
 
-    # Previously this sliced every chunk to its top 3 and used top_n=8,
-    # silently ignoring top_k_per_chunk / top_n_combos.
     per_chunk = [candidates(ch, top_k=top_k_per_chunk) for ch in chunks]
     scored = build_combinations(per_chunk, top_n=top_n_combos, with_scores=True)
     if not scored:
@@ -86,7 +89,7 @@ def stream_sentences(word_stream, pause_threshold_s=1.5):
 if __name__ == "__main__":
     print("=== word candidates ===")
     for ch in ["NME", "THNK", "MY", "LOKY", "HELO", "WRD", "T", "A"]:
-        print(ch, "→", [c[0] for c in candidates(ch, top_k=4)])
+        print(ch, "->", [c[0] for c in candidates(ch, top_k=4)])
 
     print("\n=== sentence tests (deterministic) ===")
     for chunks in [
