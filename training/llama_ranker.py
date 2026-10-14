@@ -1,15 +1,21 @@
 import re
-from llama_cpp import Llama
+import string
+from functools import lru_cache
+
+import numpy as np
 
 _llm = None
+
 
 def get_llm():
     global _llm
     if _llm is None:
+        from llama_cpp import Llama          # lazy: guard logic is testable without it
         _llm = Llama(
             model_path="models/qwen2.5-3b-instruct-q4_k_m.gguf",
-            n_ctx=2048,
+            n_ctx=1024,
             n_threads=4,
+            logits_all=True,                 # needed to score sentences (see sentence_logprob)
             verbose=False,
         )
     return _llm
@@ -25,7 +31,7 @@ _ALLOWED_INSERTIONS = {
 }
 
 # ---------------------------------------------------------------------------
-# Ranking (kept for experiments; disabled in default pipeline)
+# Old "pick a number" ranker -- kept for experiments, not used by the pipeline
 # ---------------------------------------------------------------------------
 SYSTEM_RANK = """You correct fingerspelled ASL. Raw chunks are classifier
 observations and may have missing or wrong letters. Pick the candidate that
@@ -57,13 +63,7 @@ Answer: 1
 def rank_sentences(raw_chunks, candidates):
     raw_line = ", ".join(f'"{c}"' for c in raw_chunks)
     numbered = "\n".join(f"{i+1}. {c}" for i, c in enumerate(candidates))
-
-    user = (
-        f'Raw chunks: {raw_line}\n\n'
-        f"Candidates:\n{numbered}\n\n"
-        f"Answer:"
-    )
-
+    user = f'Raw chunks: {raw_line}\n\nCandidates:\n{numbered}\n\nAnswer:'
     out = get_llm().create_chat_completion(
         messages=[
             {"role": "system", "content": SYSTEM_RANK},
@@ -73,7 +73,6 @@ def rank_sentences(raw_chunks, candidates):
         temperature=0.0,
     )
     text = out["choices"][0]["message"]["content"].strip()
-
     m = re.search(r"\d+", text)
     if m:
         idx = int(m.group()) - 1
@@ -83,23 +82,20 @@ def rank_sentences(raw_chunks, candidates):
 
 
 # ---------------------------------------------------------------------------
-# Grammar polish (with hard fallback)
+# Grammar polish (LLM proposes, strict validator disposes)
 # ---------------------------------------------------------------------------
-SYSTEM_POLISH = """You add missing grammar to ASL fingerspelled English.
+SYSTEM_POLISH = f"""You add missing grammar to ASL fingerspelled English.
 
-You may ONLY do these things:
-- Insert one of these function words where needed:
-  A, AN, THE, IS, ARE, WAS, WERE, AM, TO, OF, IN, ON, AT, FOR,
-  MY, YOUR, HIS, HER, THEIR, I, YOU, HE, SHE.
-- Fix pronoun case: ME → MY (before a noun), I → MY (before a noun).
+Input is a sequence of correct English words, but function words may be missing
+(articles, copulas, prepositions) and pronouns may have the wrong form.
 
-You may NOT:
-- Add any word not in the list above.
-- Change any content word.
-- Remove any word.
-- Add commas or punctuation.
-
-If the input is already grammatical, return it UNCHANGED.
+Your job:
+- Insert missing function words: A, AN, THE, IS, ARE, WAS, WERE, TO, OF, IN,
+  ON, AT, FOR, MY, YOUR, HIS, HER, THEIR, I, YOU, HE, SHE.
+- Fix pronoun forms: ME -> MY (before a noun), I -> MY (before a noun).
+- Do NOT change any content word. NAMED stays NAMED. WORD stays WORD.
+- Do NOT add new content words.
+- Reply with only the polished sentence.
 
 Example 1:
 Input: ME NAME LOKY
@@ -112,47 +108,57 @@ Output: THANK YOU VERY MUCH
 Example 3:
 Input: I WANT GO STORE
 Output: I WANT TO GO TO THE STORE
-
-Example 4:
-Input: HELLO HOW YOU
-Output: HELLO HOW ARE YOU
 """
 
 
-def _stems(w):
-    w = w.upper()
-    for suf in ("ING", "ED", "ES", "S", "LY"):
-        if w.endswith(suf) and len(w) > len(suf) + 2:
-            return w[:-len(suf)]
-    return w
+def validate_polish(original_words, polished):
+    """
+    Accept the LLM output only if it is the original words, in the original
+    order, plus allowed function words (and ME->MY). Returns (tokens, None) on
+    success or (None, reason) on failure.
+
+    The old check only tested "no illegal words" and "content words still
+    present somewhere", so reordering ("HER IS MY NAME SARAH"), duplication
+    ("MY OF ICE IS OF ICE"), stem swaps (NAME->NAMED), commas and changes to
+    words under 3 letters all got through.
+    """
+    orig = [w.upper() for w in original_words]
+    toks = [t.strip(string.punctuation).upper() for t in polished.split()]
+    toks = [t for t in toks if t]                # commas etc. are stripped, not kept
+    if not toks:
+        return None, "empty output"
+
+    j = 0
+    for t in toks:
+        if j < len(orig) and (t == orig[j] or ALLOWED_SUBSTITUTIONS.get(orig[j]) == t):
+            j += 1
+        elif t in ALLOWED_INSERTIONS:
+            continue
+        else:
+            return None, f"unexpected word or out of order: {t}"
+    if j != len(orig):
+        return None, "original words lost, changed or reordered"
+    if any(a == b for a, b in zip(toks, toks[1:])):
+        return None, "repeated word"
+    return toks, None
 
 
-def _survives(word, sentence_upper):
-    if word.upper() in sentence_upper:
-        return True
-    stem = _stems(word)
-    for tok in sentence_upper.split():
-        if _stems(tok) == stem:
-            return True
-    return False
-
-
-def grammar_polish(corrected_sentence, raw_chunks):
+def grammar_polish(corrected_sentence, raw_chunks=None):
     """
     Returns (final_sentence, source, info)
-      source = "llm"      -> LLM output passed all constraints
-      source = "fallback" -> LLM output discarded, using corrected sentence
+      source = "llm"       -> LLM added/changed something and passed validation
+      source = "unchanged" -> LLM said it was already fine
+      source = "fallback"  -> LLM output rejected, corrected sentence returned
+    `raw_chunks` is accepted for compatibility but deliberately NOT shown to
+    the model: the noisy letters only tempt it to "fix" content words.
     """
     words = corrected_sentence.split()
     if len(words) < 2:
         return corrected_sentence, "fallback", {"reason": "too short"}
 
-    user = (
-        f"Raw letter chunks: {' '.join(raw_chunks)}\n"
-        f"Corrected words:  {corrected_sentence}\n\n"
-        f"Polished sentence:"
-    )
-
+    # Same "Input:/Output:" format as the few-shot examples. (Old code used a
+    # different layout in the user turn than in the examples.)
+    user = f"Input: {corrected_sentence}\nOutput:"
     try:
         out = get_llm().create_chat_completion(
             messages=[
@@ -161,32 +167,20 @@ def grammar_polish(corrected_sentence, raw_chunks):
             ],
             max_tokens=60,
             temperature=0.0,
+            stop=["\n"],
         )
         polished = out["choices"][0]["message"]["content"].strip()
     except Exception as e:
         return corrected_sentence, "fallback", {"reason": f"llm error: {e}"}
 
-    # Strip any leading label the model might add
-    for prefix in ("Polished sentence:", "Output:", "Answer:"):
+    for prefix in ("Output:", "Polished sentence:", "Answer:"):
         if polished.lower().startswith(prefix.lower()):
             polished = polished[len(prefix):].strip()
 
     upper = polished.upper()
     lost = [w for w in words
             if len(w) >= 3 and w.isalpha() and not _survives(w, upper)]
-    upper_tokens = upper.split()
-    orig_set = {w.upper() for w in words}
 
-    added = [t for t in upper_tokens
-            if t not in orig_set
-            and t.rstrip(",.!?") not in orig_set
-            and t not in _ALLOWED_INSERTIONS]
-
-    if added:
-        return corrected_sentence, "fallback", {
-            "reason": f"illegal insertions: {added}",
-            "llm_output": polished,
-        }
     if lost:
         return corrected_sentence, "fallback", {
             "reason": f"lost content words: {lost}",
