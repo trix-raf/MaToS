@@ -34,7 +34,7 @@ _COMMON = [
 ]
 
 DICT_WORD_SET = set(DICT_WORDS) | set(_COMMON)
-
+DICT_WORD_SET = {w for w in DICT_WORD_SET if len(w) > 1 or w in ("I", "A")}
 FREQ_LOOKUP = {w: 0.95 for w in _COMMON}
 FREQ_LOOKUP.update({w: float(f) for w, f in zip(DICT_WORDS, FREQ_NORM)})
 FREQ_LOOKUP = {w: v for w, v in FREQ_LOOKUP.items() if w}

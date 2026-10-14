@@ -156,7 +156,7 @@ if __name__ == "__main__":
     print("Stress test — deterministic (no LLM)")
     for rate in [0.0, 0.05, 0.10, 0.15, 0.20]:
         run(error_rate=rate, mode="random", n_trials=5,
-            polish=False, rank=False)          # <— rank=False
+            polish=False, rank=True)          # <— rank=False
 
     # ---- SLOW: LLM polish, tiny n ----
     print("\n\nStress test — with LLM polish (Qwen 3B)")

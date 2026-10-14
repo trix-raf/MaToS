@@ -14,6 +14,16 @@ def get_llm():
         )
     return _llm
 
+# Function words the polisher is allowed to insert.
+_ALLOWED_INSERTIONS = {
+    "A", "AN", "THE",
+    "IS", "ARE", "WAS", "WERE", "AM", "BE", "BEEN",
+    "TO", "OF", "IN", "ON", "AT", "FOR", "WITH", "BY", "FROM",
+    "MY", "YOUR", "HIS", "HER", "THEIR", "OUR", "ITS",
+    "I", "YOU", "HE", "SHE", "IT", "WE", "THEY", "ME", "US", "THEM",
+    "AND", "OR", "BUT", "SO",
+}
+
 # ---------------------------------------------------------------------------
 # Ranking (kept for experiments; disabled in default pipeline)
 # ---------------------------------------------------------------------------
@@ -77,28 +87,35 @@ def rank_sentences(raw_chunks, candidates):
 # ---------------------------------------------------------------------------
 SYSTEM_POLISH = """You add missing grammar to ASL fingerspelled English.
 
-Input is a sequence of correct English words, but function words may be missing
-(articles, copulas, prepositions) and pronouns may have the wrong form.
+You may ONLY do these things:
+- Insert one of these function words where needed:
+  A, AN, THE, IS, ARE, WAS, WERE, AM, TO, OF, IN, ON, AT, FOR,
+  MY, YOUR, HIS, HER, THEIR, I, YOU, HE, SHE.
+- Fix pronoun case: ME → MY (before a noun), I → MY (before a noun).
 
-Your job:
-- Insert missing function words: A, AN, THE, IS, ARE, WAS, WERE, TO, OF, IN,
-  ON, AT, FOR, MY, YOUR, HIS, HER, THEIR, I, YOU, HE, SHE.
-- Fix pronoun forms: ME -> MY (before a noun), I -> MY (before a noun).
-- Do NOT change any content word. NAMED stays NAMED. WORD stays WORD.
-- Do NOT add new content words.
-- Reply with only the polished sentence.
+You may NOT:
+- Add any word not in the list above.
+- Change any content word.
+- Remove any word.
+- Add commas or punctuation.
+
+If the input is already grammatical, return it UNCHANGED.
 
 Example 1:
 Input: ME NAME LOKY
 Output: MY NAME IS LOKY
 
 Example 2:
-Input: HELLO HOW YOU
-Output: HELLO, HOW ARE YOU
+Input: THANK YOU VERY MUCH
+Output: THANK YOU VERY MUCH
 
 Example 3:
 Input: I WANT GO STORE
 Output: I WANT TO GO TO THE STORE
+
+Example 4:
+Input: HELLO HOW YOU
+Output: HELLO HOW ARE YOU
 """
 
 
@@ -157,7 +174,19 @@ def grammar_polish(corrected_sentence, raw_chunks):
     upper = polished.upper()
     lost = [w for w in words
             if len(w) >= 3 and w.isalpha() and not _survives(w, upper)]
+    upper_tokens = upper.split()
+    orig_set = {w.upper() for w in words}
 
+    added = [t for t in upper_tokens
+            if t not in orig_set
+            and t.rstrip(",.!?") not in orig_set
+            and t not in _ALLOWED_INSERTIONS]
+
+    if added:
+        return corrected_sentence, "fallback", {
+            "reason": f"illegal insertions: {added}",
+            "llm_output": polished,
+        }
     if lost:
         return corrected_sentence, "fallback", {
             "reason": f"lost content words: {lost}",
