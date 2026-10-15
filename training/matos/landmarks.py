@@ -2,7 +2,8 @@
 landmarks.py - MediaPipe HandLandmarker (Tasks API), wrapped.  Same call pattern as phase0.py /
 test_landmark.py (HandLandmarkerOptions + detect), plus a VIDEO mode for the webcam.
 
-The model file `hand_landmarker.task` is looked up in: the path you pass, $MATOS_HAND_MODEL, ./models/.
+The model file `hand_landmarker.task` is looked up in: the path you pass, $MATOS_HAND_MODEL, <project>/models/
+(see matos/paths.py - it does not depend on the folder you launch from).
 If it is missing it is downloaded once (needs internet - on a cluster do that on the login node:
 `python -m matos models`).
 """
@@ -18,6 +19,7 @@ import numpy as np
 
 from matos.config import HAND_MODEL_FILE, HAND_MODEL_URL
 from matos.features import to_pixels
+from matos.paths import LAYOUT
 
 
 @dataclass
@@ -29,7 +31,7 @@ class Hand:
 
 
 def model_path(path: Optional[str] = None) -> Path:
-    return Path(path or os.environ.get("MATOS_HAND_MODEL") or Path("models") / HAND_MODEL_FILE)
+    return LAYOUT.hand_model(path)
 
 
 def ensure_model(path: Optional[str] = None) -> Path:
@@ -42,7 +44,7 @@ def ensure_model(path: Optional[str] = None) -> Path:
         urllib.request.urlretrieve(HAND_MODEL_URL, str(p) + ".part")
     except Exception as e:  # noqa: BLE001
         raise SystemExit(f"could not download {HAND_MODEL_URL}\n  ({type(e).__name__}: {e})\n"
-                         f"Put hand_landmarker.task in ./models/ (or pass --hand-model PATH).")
+                         f"Put {HAND_MODEL_FILE} in {p.parent}{os.sep} (or pass --hand-model PATH / set MATOS_HAND_MODEL).")
     os.replace(str(p) + ".part", p)
     return p
 

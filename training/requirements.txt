@@ -1,10 +1,22 @@
-# --- live laptop (runtime) ---
-numpy
-opencv-python
-onnxruntime
-mediapipe          # you used a numpy-2 build; keep whichever one works on your machine (I could not see your requirements file)
+# Direct dependencies only, pinned to the versions of the environment this project was run in
+# (full snapshot: requirements-freeze.txt).  Install:  pip install -r requirements.txt
 
-# --- training machine (adds) ---
-scikit-learn       # verifier fit, rf/extra models
-scipy              # temperature calibration
-# torch            # only for `--model mlp_torch`; the default numpy MLP needs nothing extra
+# --- live app (webcam -> letters -> text) ---
+numpy==2.4.0
+opencv-python==5.0.0.93
+onnxruntime==1.19.2
+mediapipe-numpy2==0.10.21        # the numpy-2 build of MediaPipe; use plain `mediapipe` on a numpy<2 setup
+
+# --- training / extraction machine (adds) ---
+scikit-learn==1.8.0              # verifier fit
+scipy==1.17.1                    # temperature calibration
+
+# --- text stage extras ---
+llama-cpp-python==0.3.36         # only for --rank / --polish (needs a .gguf in models/)
+wordfreq==3.1.1                  # only to rebuild data/dictionary.tsv (scripts/build_dictionary.py)
+kagglehub==1.0.2                 # only to download the Kaggle dataset (scripts/kaggle_dataset.py)
+
+# --- optional ---
+# torch                          # only for `--model mlp_torch`; the default numpy MLP needs nothing extra
+# skl2onnx==1.18.0               # only for `--model rf|extra` and legacy/phase0.py's ONNX round-trip
+# onnx==1.16.2

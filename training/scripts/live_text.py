@@ -1,16 +1,17 @@
 """
-live_text.py - jembatan  matos/live.py  ->  pipeline.py
+live_text.py - jembatan  matos/live.py  ->  matos/text/pipeline.py
 
     frames --(MediaPipe + bundle + LetterDecoder, matos/live.py)--> event "sentence", e.words = ["NME", "IS", "LOKY"]
-           --(pipeline.process_letter_chunks)-->                     "MY NAME IS LOKY"
+           --(matos.text.pipeline.process_letter_chunks)-->          "MY NAME IS LOKY"
 
-Jalankan dari root project (folder yang berisi matos/, pipeline.py, autocorrect.py, models/):
+Bisa dijalankan dari folder mana pun. --bundle = nama run di models/ (run1 -> models/bundles/run1, base -> bundle dasar
+di models/base/) atau path lengkap:
 
-    python live_text.py --bundle bundles/main                    # webcam, koreksi ejaan saja (cepat, tanpa LLM)
-    python live_text.py --bundle bundles/main --rank             # + LM rerank
-    python live_text.py --bundle bundles/main --rank --polish    # + grammar polish (menambah kata yang hilang)
-    python live_text.py --bundle bundles/main --video clip.mp4 --no-show
-    python live_text.py --bundle bundles/main --save-chunks real.jsonl   # simpan chunk asli untuk stress test
+    python scripts/live_text.py --bundle run1                    # webcam, koreksi ejaan saja (cepat, tanpa LLM)
+    python scripts/live_text.py --bundle run1 --rank             # + LM rerank
+    python scripts/live_text.py --bundle run1 --rank --polish    # + grammar polish (menambah kata yang hilang)
+    python scripts/live_text.py --bundle run2 --video clip.mp4 --no-show
+    python scripts/live_text.py --bundle run1 --save-chunks real.jsonl   # simpan chunk asli untuk stress test
 
 Batas kalimat ditentukan LetterDecoder (event "sentence"), bukan SentenceAccumulator di pipeline.py.
 Pipeline jalan di worker thread supaya kamera / decoder tidak tersendat saat LLM sedang berpikir.
@@ -25,10 +26,10 @@ import threading
 import time
 from pathlib import Path
 
-# supaya `pipeline`, `autocorrect`, `llama_ranker`, `matos` ter-import dari cwd mana pun
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# supaya `matos` (termasuk matos.text.*) ter-import dari cwd mana pun
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pipeline import process_letter_chunks  # noqa: E402
+from matos.text.pipeline import process_letter_chunks  # noqa: E402
 
 
 class SentenceWorker(threading.Thread):
@@ -99,7 +100,7 @@ def main(argv=None) -> int:
 
     if a.rank or a.polish:
         print("[bridge] memuat LLM (sekali, sebelum kamera mulai)...")
-        from llama_ranker import get_llm
+        from matos.text.llama_ranker import get_llm
 
         get_llm()
         process_letter_chunks(["HELLO", "YOU"], rank=a.rank, polish=a.polish)   # warm-up, kalimat pertama tidak lambat

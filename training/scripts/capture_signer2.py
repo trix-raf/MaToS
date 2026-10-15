@@ -1,6 +1,7 @@
 """
-Guided capture of second-signer (or per-user) data.   python capture_signer2.py [--camera 1] [--out signer2] [--per-class 40]
-Saves to <out>/<class>/<class>_<n>.jpg   (28 classes: A-Z, space, nothing - no `del`)
+Guided capture of second-signer (or per-user) data.   python scripts/capture_signer2.py [--camera 1] [--out signer2] [--per-class 40]
+Saves to data/<out>/<class>/<class>_<n>.jpg   (default data/signer2/;  28 classes: A-Z, space, nothing - no `del`)
+A bare name goes under data/, a path (./x, /abs/x, a/b) is used as written.
 Controls: SPACE = start capture for this class, N = skip class, ESC = quit
 
 The frame is flipped (selfie view) exactly like the live app (matos.config.CAMERA_MIRROR) - keep them in sync.
@@ -12,8 +13,14 @@ moving between letters.  Move your hand during the burst and vary pose and dista
 
 import argparse
 import os
-import cv2
+import sys
 import time
+from pathlib import Path
+
+import cv2
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))     # project root, so `matos` imports from any cwd
+from matos.paths import LAYOUT  # noqa: E402
 
 CLASSES = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + ["space", "nothing"]
 COUNTDOWN_S = 3
@@ -22,10 +29,11 @@ ap.add_argument("--camera", type=int, default=1)
 ap.add_argument("--out", default="signer2")
 ap.add_argument("--per-class", type=int, default=40)
 args = ap.parse_args()
-IMAGES_PER_CLASS, OUT_ROOT = args.per_class, args.out
+IMAGES_PER_CLASS, OUT_ROOT = args.per_class, str(LAYOUT.out_data_dir(args.out))
 HINTS = {"nothing": "relaxed OPEN hand, low / moving in and out - not a fist", "space": "your SPACE gesture"}
 
 os.makedirs(OUT_ROOT, exist_ok=True)
+print(f"[capture] saving to {OUT_ROOT}")
 
 cap = cv2.VideoCapture(args.camera)
 if not cap.isOpened():

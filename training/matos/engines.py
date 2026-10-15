@@ -17,6 +17,7 @@ from typing import Optional
 import numpy as np
 
 from matos.config import CLASSES, FEATURE_VERSION
+from matos.paths import LAYOUT
 
 N_CLS = len(CLASSES)
 MLP_KINDS = ("torch", "numpy")      # models exported as plain Gemm/Relu/Softmax graphs -> OpenCV DNN can run them
@@ -84,7 +85,9 @@ class Bundle:
     """config.json + model file of an exported bundle, with a ready classifier."""
 
     def __init__(self, path: str, prefer: str = "auto", threads: int = 2, log=print, tol: float = 1e-4):
-        self.dir = Path(path)
+        self.dir = LAYOUT.find_bundle(path)           # 'run1' -> models/bundles/run1, 'base' -> models/base/..., paths as given
+        if str(path) != str(self.dir):
+            log(f"[bundle] {path} -> {self.dir}")
         self.cfg = json.loads((self.dir / "config.json").read_text())
         if self.cfg.get("feature_version") != FEATURE_VERSION:
             raise SystemExit(f"bundle feature_version {self.cfg.get('feature_version')} != code {FEATURE_VERSION}: retrain/export")

@@ -10,6 +10,10 @@ python -m matos <command> ...
   simulate  [--bundle B]         decoder on simulated classifier streams (sentence accuracy)
   tune-decoder --bundle B [--write]   grid-search smooth_s / release_s / hold_s on simulated streams
   live      --bundle B           webcam (or --video FILE) -> text
+
+Names are resolved against models/ (see matos/paths.py):  --bundle run1 = models/bundles/run1,  --bundle base = the base bundle,
+--out run2 = models/bundles/run2,  --out base/bundle = models/base/bundle,  --shards / --out shards = models/shards.
+Absolute paths and ./relative paths are always used exactly as written.  Run from the project root:  python -m matos <command>
 """
 from __future__ import annotations
 
@@ -20,6 +24,8 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
+
+from matos.paths import LAYOUT
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -63,7 +69,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("models"); s.add_argument("--hand-model")
-    s = sub.add_parser("synth"); s.add_argument("--out", default="shards_synth"); s.add_argument("--per-class", type=int, default=150)
+    s = sub.add_parser("synth"); s.add_argument("--out", default="synth"); s.add_argument("--per-class", type=int, default=150)
     s = sub.add_parser("extract")
     s.add_argument("--src", action="append", required=True, metavar="NAME=FOLDER")
     s.add_argument("--out", default="shards"); s.add_argument("--workers", type=int, default=4); s.add_argument("--limit-per-class", type=int, default=0)
@@ -117,6 +123,7 @@ def main(argv=None) -> int:
             name, _, folder = spec.partition("=")
             if not folder:
                 raise SystemExit(f"--src expects NAME=FOLDER, got '{spec}'")
+            folder = str(LAYOUT.find_data_dir(folder))          # "signer2" -> data/signer2 ; Kaggle paths are used as written
             items, info = discover(folder, exclude=tuple(a.exclude.split(",")), limit_per_class=a.limit_per_class)
             print(f"[sources] {name}: {info['images']} images, {info['classes_present']} classes (class level {info['class_depth']})")
             srcs[name] = items
@@ -138,7 +145,8 @@ def main(argv=None) -> int:
     elif a.cmd in ("simulate", "tune-decoder"):
         from matos.decoder import DecoderParams
 
-        cfg, ver, conf = _bundle_bits(a.bundle)
+        bundle = LAYOUT.find_bundle(a.bundle) if a.bundle else None
+        cfg, ver, conf = _bundle_bits(bundle)
         ver = ver if a.use_verifier else None
         params = DecoderParams(**{k: v for k, v in ((cfg or {}).get("decoder") or {}).items() if k in DecoderParams.__dataclass_fields__})
         if a.cmd == "simulate":
@@ -161,12 +169,12 @@ def main(argv=None) -> int:
                 (r[2], r[3], r[4]) == (params.smooth_s, params.release_s, params.hold_s) for r in rows) else None
             if base:
                 print(f"[tune] current ({params.smooth_s}, {params.release_s}, {params.hold_s}): {base[0]:.1%} chars | {base[1]:.0%} exact")
-            if a.write and a.bundle:
+            if a.write and bundle:
                 import hashlib
 
                 best = rows[0]
                 cfg["decoder"] = asdict(replace(params, smooth_s=best[2], release_s=best[3], hold_s=best[4]))
-                d = Path(a.bundle)
+                d = bundle
                 (d / "config.json").write_text(json.dumps(cfg, indent=1))
                 names = [n for n in ("letter_model.onnx", "config.json", "confusion.json", "model.npz") if (d / n).exists()]
                 (d / "SHA256SUMS").write_text("".join(f"{hashlib.sha256((d / n).read_bytes()).hexdigest()}  {n}\n" for n in names))
