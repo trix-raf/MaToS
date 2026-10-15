@@ -3,3 +3,4 @@ models/
 signer2/
 datasets/
 __pycache__/
+shards/

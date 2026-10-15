@@ -1,12 +1,10 @@
-opencv-python==5.0.0.93
-mediapipe-numpy2==0.10.21
-scikit-learn==1.8.0
-numpy==2.4.0
-onnxruntime==1.17.1
-pandas==3.0.3
-matplotlib==3.11.2
-wordfreq==3.1.1
+# --- live laptop (runtime) ---
+numpy
+opencv-python
+onnxruntime
+mediapipe          # you used a numpy-2 build; keep whichever one works on your machine (I could not see your requirements file)
 
-# Uncomment when you build the LLM stage
-# torch==2.11.0
-# transformers==4.57.3
+# --- training machine (adds) ---
+scikit-learn       # verifier fit, rf/extra models
+scipy              # temperature calibration
+# torch            # only for `--model mlp_torch`; the default numpy MLP needs nothing extra
