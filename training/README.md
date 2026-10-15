@@ -77,6 +77,10 @@ v3/
 
 Run everything from the project root (`python -m matos ...`). The scripts in `scripts/` and `legacy/` work from any folder.
 
+## Models used
+You can download the Qwen 2.5 - 3B models,
+https://huggingface.co/Qwen/Qwen2.5-3B?prompt=Hi
+
 ## Where models live
 
 All model files are under `models/` - nothing else in the repo stores weights. `matos/paths.py` is the single place that knows these folders.
@@ -168,3 +172,5 @@ phase-0 random-forest pipeline, kept for reference; it writes to `models/base/` 
 | `requirement.txt` (UTF-16) | `requirements-freeze.txt` (UTF-8); `requirements.txt` now lists the real dependencies |
 | root `engines.py`, `export.py`, `models.py`, `landmarks.py`, `verifier.py` | removed: older copies of the same modules in `matos/` (`models.py` also clashed with the `models/` folder) |
 | `__pycache__/` | removed |
+
+## Citation
