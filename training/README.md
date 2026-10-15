@@ -1,4 +1,4 @@
-# MaToS (matos) v0.3 - fingerspelled ASL -> text
+# MaToS (matos) v3 - fingerspelled ASL -> text
 
 Hand landmarks (MediaPipe) -> letter MLP (28 classes: A-Z, `space`, `nothing`) -> LetterDecoder -> words.
 
