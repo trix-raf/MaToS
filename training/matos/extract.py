@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from matos.config import CLASSES
+from matos.paths import LAYOUT
 
 CHUNK = 2000
 _LM = None
@@ -67,7 +68,7 @@ def _save(out: Path, source: str, cid: int, arrays: dict):
 def extract(sources: Dict[str, List[Tuple[str, int]]], out_dir: str, workers: int = 4, model: Optional[str] = None,
             min_conf: float = 0.3, num_hands: int = 1, chunk: int = CHUNK, landmarker=None, log=print) -> dict:
     """workers=0 runs inline with `landmarker` (tests / debugging)."""
-    out = Path(out_dir)
+    out = LAYOUT.out_shards(out_dir)                      # "shards" -> models/shards, "run2" -> models/shards/run2
     out.mkdir(parents=True, exist_ok=True)
     tasks, done = [], 0
     for name, items in sources.items():

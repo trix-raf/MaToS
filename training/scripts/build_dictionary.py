@@ -1,6 +1,12 @@
-# build_dictionary.py
-from wordfreq import top_n_list, zipf_frequency
+# build_dictionary.py  ->  data/dictionary.tsv   (needs: pip install wordfreq)
 import csv
+import sys
+from pathlib import Path
+
+from wordfreq import top_n_list, zipf_frequency
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))     # project root, so `matos` imports from any cwd
+from matos.paths import LAYOUT  # noqa: E402
 
 words = top_n_list("en", 5000)
 # Filter: keep alphabetic, length >= 1
@@ -18,10 +24,12 @@ extra = [
 words.extend(extra)
 words = sorted(set(words))
 
-with open("dictionary.tsv", "w", newline="") as f:
+OUT = LAYOUT.data / "dictionary.tsv"
+OUT.parent.mkdir(parents=True, exist_ok=True)
+with open(OUT, "w", newline="", encoding="utf-8") as f:
     w = csv.writer(f, delimiter="\t")
     w.writerow(["word", "freq"])
     for word in words:
         # zipf_frequency returns log10 scale, higher = more frequent
         w.writerow([word, zipf_frequency(word, "en")])
-print(f"wrote {len(words)} words")
+print(f"wrote {len(words)} words -> {OUT}")

@@ -14,6 +14,7 @@ import numpy as np
 
 from matos.config import CLASSES
 from matos.extract import _save
+from matos.paths import LAYOUT
 
 MCP = {"index": (-0.32, -0.95), "middle": (0.0, -1.0), "ring": (0.30, -0.95), "pinky": (0.58, -0.82)}
 SEG = {"index": (0.45, 0.28, 0.22), "middle": (0.5, 0.32, 0.24), "ring": (0.46, 0.30, 0.23), "pinky": (0.36, 0.22, 0.19)}
@@ -84,7 +85,7 @@ def sample(tpl, style, rng):
 def make_shards(out_dir: str, per_class: int = 150, sources=("A", "B", "C"), seed: int = 0, log=print):
     rng = np.random.default_rng(seed)
     tpl = templates(np.random.default_rng(1234))             # class identity is fixed; only noise depends on seed
-    out = Path(out_dir)
+    out = LAYOUT.out_shards(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     for src in sources:
         px, wh, lab = [], [], []

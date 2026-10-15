@@ -23,6 +23,7 @@ from matos.dataset import LandmarkSet, load_shards
 from matos.decoder import DecoderParams
 from matos.export import confusion_matrix, write_bundle
 from matos.models import NumpyMLP, get_model, source_weights
+from matos.paths import LAYOUT, warn_if_exists
 
 N = len(CLASSES)
 
@@ -82,7 +83,7 @@ def class_report(ls: LandmarkSet, log=print, min_real_nothing: int = 50) -> None
     if cnt[NOTHING_IDX] < min_real_nothing:
         log(f"[data] WARNING: only {cnt[NOTHING_IDX]} 'nothing' samples. The Kaggle 'nothing' images contain no hand, so MediaPipe "
             f"finds nothing to extract. Record hand-present negatives (relaxed / lowered open hand, hands entering or leaving "
-            f"the frame) with capture_signer2.py, or pass --synth-nothing auto for blended-letter negatives.")
+            f"the frame) with scripts/capture_signer2.py, or pass --synth-nothing auto for blended-letter negatives.")
 
 
 def _nothing_budget(arg, y: np.ndarray) -> int:
@@ -128,6 +129,9 @@ def loso_predictions(ls: LandmarkSet, name: str, kw: dict, weight_mode: str, syn
 def train(shard_dir: str, out_dir: str, name: str = "mlp", features: str = "xyz_geo", hidden=(256, 256, 128), epochs: int = 30,
           seeds: int = 1, label_smoothing: float = 0.05, weight_mode: str = "sqrt", include=None, exclude=None,
           synth_nothing=0, loso: bool = True, seed: int = 0, log=print) -> dict:
+    out = LAYOUT.out_bundle(out_dir)                  # 'run1' -> models/bundles/run1, 'base/bundle' -> models/base/bundle
+    warn_if_exists(out, log)
+    log(f"[train] bundle will be written to {out}")
     ls = load_shards(shard_dir, include, exclude)
     class_report(ls, log)
     kw = dict(fs=features, hidden=hidden, epochs=epochs, label_smoothing=label_smoothing, seeds=seeds) if name.startswith("mlp") \
@@ -161,9 +165,9 @@ def train(shard_dir: str, out_dir: str, name: str = "mlp", features: str = "xyz_
     if hasattr(model, "T"):
         model.T = T
     sel = np.random.default_rng(0).choice(len(y), min(512, len(y)), replace=False)
-    rep = write_bundle(model, out_dir, ref_norm=norm[sel], verifier=verifier, confusion=confusion, metrics=metrics,
+    rep = write_bundle(model, out, ref_norm=norm[sel], verifier=verifier, confusion=confusion, metrics=metrics,
                        decoder=asdict(DecoderParams()), log=log)
-    (Path(out_dir) / "train_metrics.json").write_text(json.dumps(metrics, indent=1))
+    (out / "train_metrics.json").write_text(json.dumps(metrics, indent=1))
     return dict(metrics=metrics, export=rep)
 
 
@@ -175,7 +179,14 @@ def finetune(bundle_dir: str, shard_dir: str, user: str, out_dir: str, steps: in
     accuracy rises by >= min_gain AND base-data accuracy does not fall by more than max_forget (a sanity gate, not a
     significance test: with ~10 held-out samples per class the standard error is still 1-2 points).
     """
-    bdir = Path(bundle_dir)
+    bdir = LAYOUT.find_bundle(bundle_dir)
+    out = LAYOUT.out_bundle(out_dir)
+    if out.resolve() == bdir.resolve():
+        log(f"[finetune] WARNING: --out is the same folder as --bundle ({bdir}); the input bundle will be replaced. "
+            f"Use a new name (e.g. run2) to keep both.")
+    else:
+        warn_if_exists(out, log)
+    log(f"[finetune] {bdir} -> {out}")
     cfg = json.loads((bdir / "config.json").read_text())
     if not (bdir / "model.npz").exists():
         raise SystemExit("bundle has no model.npz - fine-tuning needs a bundle trained with --model mlp (numpy MLP)")
@@ -215,7 +226,7 @@ def finetune(bundle_dir: str, shard_dir: str, user: str, out_dir: str, steps: in
                    base_before=before_b, base_after=after_b, steps=steps, lr=lr, mix=mix, applied=bool(gain_ok)))
     conf = json.loads((bdir / "confusion.json").read_text())
     ref = norm[np.random.default_rng(0).choice(len(y), min(512, len(y)), replace=False)]
-    rep = write_bundle(model, out_dir, ref_norm=ref, verifier=cfg.get("verifier"), confusion=conf, metrics=metrics,
+    rep = write_bundle(model, out, ref_norm=ref, verifier=cfg.get("verifier"), confusion=conf, metrics=metrics,
                        decoder=cfg.get("decoder", asdict(DecoderParams())), log=log)
     return dict(before=before_u, after=after_u, applied=bool(gain_ok), export=rep)
 

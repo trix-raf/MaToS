@@ -1,7 +1,22 @@
-.venv/
-models/
-signer2/
-datasets/
 __pycache__/
-shards/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/
+
+# big / downloaded / generated - you put these in place yourself
+models/hand_landmarker.task
+models/*.gguf
+models/shards/*
+models/bundles/*
+models/base
+!models/shards/.gitkeep
+!models/bundles/.gitkeep
+data/datasets/
+data/signer2/
+data/dictionary.tsv
+data/landmarks_raw.npz
+data/names.txt
+
 legacy/

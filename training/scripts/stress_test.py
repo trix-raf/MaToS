@@ -1,10 +1,10 @@
 """
 Stress test the pipeline with synthetic letter errors.
 
-    python stress_test.py                  # deterministic only (no LLM, fast)
-    python stress_test.py --llm            # + LM rerank (+polish), paired vs deterministic
-    python stress_test.py --polish-suite   # grammar polish on clean gloss input (needs LLM)
-    python stress_test.py --e2e            # noisy gloss -> full English, whole pipeline (needs LLM)
+    python scripts/stress_test.py                  # deterministic only (no LLM, fast)
+    python scripts/stress_test.py --llm            # + LM rerank (+polish), paired vs deterministic
+    python scripts/stress_test.py --polish-suite   # grammar polish on clean gloss input (needs LLM)
+    python scripts/stress_test.py --e2e            # noisy gloss -> full English, whole pipeline (needs LLM)
 
 Every configuration in a block is run on the SAME simulated inputs, so the
 "+fixed / -broken" counts are a paired comparison, not noise between samples.
@@ -13,10 +13,14 @@ Every configuration in a block is run on the SAME simulated inputs, so the
 import argparse
 import random
 import re
+import sys
 import time
 from collections import Counter
+from pathlib import Path
 
-from pipeline import process_letter_chunks
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))     # project root, so `matos` imports from any cwd
+
+from matos.text.pipeline import process_letter_chunks  # noqa: E402
 
 
 # ---------- test corpus ----------
@@ -194,7 +198,7 @@ def run_fast(n_trials, seed):
 
 
 def run_llm(n_trials, seed, weights, margins):
-    from llama_ranker import get_llm, sentence_logprob
+    from matos.text.llama_ranker import get_llm, sentence_logprob
     print("\n\nLM rerank / polish (Qwen) vs deterministic, same inputs")
     get_llm()
     process_letter_chunks(["HELLO", "YOU"], rank=True, polish=True)   # warm-up, not timed
@@ -230,7 +234,7 @@ def run_polish_suite():
     """Polish on CLEAN input, so it is measured on its own job (adding missing
     function words) instead of being judged on already-complete sentences,
     where it can only break things."""
-    from llama_ranker import grammar_polish, get_llm
+    from matos.text.llama_ranker import grammar_polish, get_llm
     get_llm()
     print("\n\nPolish suite (clean input, no spelling errors)")
 
@@ -264,7 +268,7 @@ def run_e2e(n_trials, seed, weight, margin):
     Target is the full sentence, so 'spelling only' can never be exact for
     sentences that need function words; the interesting number is how much
     rerank and polish add on top, and whether polish breaks the controls."""
-    from llama_ranker import get_llm
+    from matos.text.llama_ranker import get_llm
     get_llm()
     print(f"\n\nEnd-to-end: noisy gloss -> full English  (w={weight}, margin={margin})")
     process_letter_chunks(["HELLO", "YOU"], rank=True, polish=True)   # warm-up

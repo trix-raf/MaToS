@@ -9,6 +9,7 @@ import numpy as np
 
 from matos import features as F
 from matos.config import CLASSES
+from matos.paths import LAYOUT
 
 
 @dataclass
@@ -46,9 +47,7 @@ class LandmarkSet:
 
 
 def load_shards(shard_dir: str, include: Optional[Iterable[str]] = None, exclude: Optional[Iterable[str]] = None) -> LandmarkSet:
-    files = sorted(Path(shard_dir).glob("shard_*.npz"))
-    if not files:
-        raise SystemExit(f"no shards in {shard_dir} - run `python -m matos extract` first")
+    files = sorted(LAYOUT.find_shards(shard_dir).glob("shard_*.npz"))   # raises a helpful SystemExit if there are none
     inc, exc = set(include or []), set(exclude or [])
     parts, names = [], []
     for f in files:
