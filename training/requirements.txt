@@ -1,0 +1,10 @@
+# --- live laptop (runtime) ---
+numpy
+opencv-python
+onnxruntime
+mediapipe          # you used a numpy-2 build; keep whichever one works on your machine (I could not see your requirements file)
+
+# --- training machine (adds) ---
+scikit-learn       # verifier fit, rf/extra models
+scipy              # temperature calibration
+# torch            # only for `--model mlp_torch`; the default numpy MLP needs nothing extra
