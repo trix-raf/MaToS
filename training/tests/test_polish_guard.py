@@ -1,11 +1,11 @@
-"""Pure-Python tests of the polish validator (no model needed).   python tests/test_polish_guard.py   |   pytest tests"""
+"""Pure-Python tests of the polish validators (no model needed).   python tests/test_polish_guard.py   |   pytest tests"""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from matos.text.llama_ranker import validate_polish  # noqa: E402
+from matos.text.t5_polish import validate_polish, validate_t5  # noqa: E402
 
-# (original gloss, LM output, should the validator accept it?)
+# STRICT validator: (original gloss, model output, should it accept it?)
 CASES = [
     # --- legitimate polish ---
     ("ME NAME LOKY", "MY NAME IS LOKY", True),
@@ -35,10 +35,39 @@ CASES = [
 ]
 
 
+# RELAXED validator (what T5 gets by default): (original gloss, protected words, T5 output, accept?)
+# `protected` = names / fingerspelled words that are not in the dictionary; they must survive verbatim.
+RELAXED_CASES = [
+    # --- T5 translating, not only inserting ---
+    ("MEMBERSHIP PARLIAMENT SEE MINUTE", (), "Membership of Parliament: see Minutes.", True),    # MINUTE -> MINUTES, OF inserted
+    ("ME NAME LOKY", ("LOKY",), "My name is Loky.", True),
+    ("I A TWENTY ONE", (), "I am twenty-one.", True),                                          # hyphen == space
+    ("I DONT UNDERSTAND", (), "I don't understand.", True),
+    ("WHAT YOU WANT", (), "What do you want?", True),
+    # --- must still be rejected ---
+    ("MY NAME IS LOKY", ("LOKY",), "My name is Lucky.", False),                                # name changed
+    ("MY NAME IS ZQXVK", ("ZQXVK",), "My name is.", False),                                    # spelled word dropped
+    ("PLEASE HELP ME", (), "", False),                                                         # empty
+    ("PLEASE HELP ME", (), "Thank you for contacting us, we will be with you shortly.", False),  # unrelated / runaway
+    ("MY MOM IS NICE", (), "Dogs are mammals.", False),                                        # content words lost
+    ("WHAT YOUR NAME", (), "Name is.", False),                                                 # half the words silently dropped
+    ("PLEASE HELP ME", (), "Please help.", False),                                             # ME dropped
+    ("MY MOM IS NICE", (), "My mom is nice.", True),                                           # identical apart from case
+    ("SEE YOU LATER", (), "See you later, see you later, see you later, see you later, see you later.", False),  # too long
+]
+
+
 def run_case(orig, polished, expect_ok):
     toks, why = validate_polish(orig.split(), polished)
     ok = toks is not None
-    line = f"{orig!r} -> {polished!r}: {'accepted ' + ' '.join(toks) if ok else 'rejected (' + why + ')'}"
+    line = f"strict  {orig!r} -> {polished!r}: {'accepted ' + ' '.join(toks) if ok else 'rejected (' + why + ')'}"
+    return ok == expect_ok, line
+
+
+def run_relaxed(orig, protected, said, expect_ok):
+    toks, why = validate_t5(orig.split(), said, protected=set(protected))
+    ok = toks is not None
+    line = f"relaxed {orig!r} -> {said!r}: {'accepted ' + ' '.join(toks) if ok else 'rejected (' + why + ')'}"
     return ok == expect_ok, line
 
 
@@ -47,10 +76,14 @@ def test_polish_guard():
     assert not wrong, "validator disagreed with:\n  " + "\n  ".join(wrong)
 
 
+def test_relaxed_guard():
+    wrong = [line for good, line in (run_relaxed(*c) for c in RELAXED_CASES) if not good]
+    assert not wrong, "validator disagreed with:\n  " + "\n  ".join(wrong)
+
+
 if __name__ == "__main__":
     results = []
-    for c in CASES:
-        good, line = run_case(*c)
+    for good, line in [run_case(*c) for c in CASES] + [run_relaxed(*c) for c in RELAXED_CASES]:
         print(("PASS  " if good else "FAIL  ") + line)
         results.append(good)
     print(f"\n{sum(results)}/{len(results)} behave as expected")

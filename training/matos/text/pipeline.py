@@ -1,27 +1,28 @@
+import warnings
+
 from matos.text.autocorrect import candidates, build_combinations
 
 
 def process_letter_chunks(
     chunks,
     polish=False,
-    rank=False,
     top_k_per_chunk=6,
     top_n_combos=20,
-    lm_weight=0.15,
-    lm_margin=3.0,
+    rank=False,
 ):
     """
     Returns (corrected, final, combos, info)
-      corrected : best sentence after spelling correction (+ LM rerank if rank)
-      final     : grammar-polished sentence (None unless polish=True)
+      corrected : best sentence after spelling correction (edit score + word frequency)
+      final     : T5 grammar-polished sentence (None unless polish=True)
       combos    : candidate sentences, best edit-score first
       info      : rank_source / polish_source / reasons, for debugging
 
-    lm_weight : final score = edit_score + lm_weight * log P_LM(sentence)
-    lm_margin : only sentences within this many edit-score points of the best
-                are shown to the LM (bigger = more LM calls, more chances to
-                recover a word the edit model ranked low)
+    rank      : REMOVED with the Qwen stage (it needed a causal LM to score sentences; the fine-tuned T5 is a
+                gloss -> English model, not that).  Accepted so old callers do not crash; it only warns.
     """
+    if rank:
+        warnings.warn("process_letter_chunks(rank=True) is ignored: the Qwen LM rerank was removed, candidates are "
+                      "ranked by the spelling score only.", stacklevel=2)
     chunks = [c.strip() for c in chunks if c and c.strip()]
     if not chunks:
         return "", None, [], {"reason": "no input"}
@@ -35,14 +36,10 @@ def process_letter_chunks(
     corrected = combos[0]
     info = {"rank_source": "score"}
 
-    if rank:
-        from matos.text.llama_ranker import rerank_with_lm      # only import the LLM if needed
-        corrected, info = rerank_with_lm(scored, margin=lm_margin, weight=lm_weight)
-
     if not polish:
         return corrected, None, combos, info
 
-    from matos.text.llama_ranker import grammar_polish
+    from matos.text.t5_polish import grammar_polish        # only import onnxruntime / tokenizers if needed
     final, source, pinfo = grammar_polish(corrected, chunks)
     return corrected, final, combos, {**info, "polish_source": source, **pinfo}
 

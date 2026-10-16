@@ -1,5 +1,3 @@
-# Full pip freeze of the working (Windows) environment, kept as a reference snapshot.
-# For a normal install use requirements.txt - it lists only the packages the code imports.
 absl-py==2.5.1
 attrs==26.1.0
 certifi==2026.7.22

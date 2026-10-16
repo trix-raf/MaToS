@@ -225,8 +225,8 @@ def build_combinations(per_chunk_candidates, top_n=12, beam=200,
     Beam search over per-chunk candidate lists.
 
     NOTE: scores are a sum of independent per-chunk scores, so combos[0] is
-    always the per-chunk argmax. The beam only matters as the candidate list
-    that a sentence-level scorer (llama_ranker.rerank_with_lm) re-ranks.
+    always the per-chunk argmax. The beam only matters as a candidate list
+    for a sentence-level scorer (there is none at the moment: the Qwen LM rerank was removed).
     Returns sentences, or (sentence, score) pairs if with_scores=True.
     """
     if not per_chunk_candidates or any(not c for c in per_chunk_candidates):

@@ -1,10 +1,12 @@
 """
 Stress test the pipeline with synthetic letter errors.
 
-    python scripts/stress_test.py                  # deterministic only (no LLM, fast)
-    python scripts/stress_test.py --llm            # + LM rerank (+polish), paired vs deterministic
-    python scripts/stress_test.py --polish-suite   # grammar polish on clean gloss input (needs LLM)
-    python scripts/stress_test.py --e2e            # noisy gloss -> full English, whole pipeline (needs LLM)
+    python scripts/stress_test.py                  # deterministic only (no T5, fast)
+    python scripts/stress_test.py --t5             # + T5 polish, paired vs deterministic
+    python scripts/stress_test.py --polish-suite   # T5 polish on clean gloss input (needs the T5 folder)
+    python scripts/stress_test.py --e2e            # noisy gloss -> full English, whole pipeline (needs the T5 folder)
+    add  --t5-model FOLDER  (or set MATOS_T5_MODEL) if the export is not in models/asl_t5_onnx_opencv
+    add  --strict  to accept only inserted function words from T5 (default: the relaxed validator)
 
 Every configuration in a block is run on the SAME simulated inputs, so the
 "+fixed / -broken" counts are a paired comparison, not noise between samples.
@@ -188,7 +190,7 @@ def report(name, res, baseline=None, show_ms=True, show_failures=0):
 
 
 def run_fast(n_trials, seed):
-    print("Deterministic (no LLM)")
+    print("Deterministic (no T5)")
     settings = ([("random", r) for r in (0.0, 0.05, 0.10, 0.15, 0.20)]
                 + [("mn", 0.10), ("mn", 0.20), ("uv", 0.10)])
     for mode, rate in settings:
@@ -197,16 +199,11 @@ def run_fast(n_trials, seed):
         report("deterministic", evaluate(cases), show_failures=3)
 
 
-def run_llm(n_trials, seed, weights, margins):
-    from matos.text.llama_ranker import get_llm, sentence_logprob
-    print("\n\nLM rerank / polish (Qwen) vs deterministic, same inputs")
-    get_llm()
-    process_letter_chunks(["HELLO", "YOU"], rank=True, polish=True)   # warm-up, not timed
-
-    # Largest margin first: it scores the most candidates, so it pays for every
-    # LM call and its latency is the worst case; later configs hit the cache.
-    configs = [(m, w) for m in sorted(margins, reverse=True) for w in weights]
-    main_m, main_w = margins[0], weights[len(weights) // 2]
+def run_t5(n_trials, seed, strict):
+    from matos.text.t5_polish import get_t5
+    print("\n\nT5 polish vs deterministic, same inputs")
+    get_t5()
+    process_letter_chunks(["HELLO", "YOU"], polish=True)   # warm-up, not timed
 
     settings = [("random", 0.0), ("random", 0.10), ("random", 0.20),
                 ("mn", 0.10), ("mn", 0.20)]
@@ -215,33 +212,25 @@ def run_llm(n_trials, seed, weights, margins):
         print(f"\n--- mode={mode}  error_rate={rate:.0%}  ({len(cases)} sentences) ---")
         base = evaluate(cases)
         report("deterministic", base)
-        sentence_logprob.cache_clear()
-        for i, (m, w) in enumerate(configs):
-            res = evaluate(cases, rank=True, lm_weight=w, lm_margin=m)
-            report(f"lm w={w} m={m}", res, base, show_ms=(i == 0))
-            lm_err = sum(r["info"].get("rank_source") == "lm_error" for r in res)
-            if lm_err:
-                print(f"      !! {lm_err} LM scoring errors, e.g. "
-                      f"{next(r['info']['lm_error'] for r in res if 'lm_error' in r['info'])}")
-        res = evaluate(cases, rank=True, polish=True, lm_weight=main_w, lm_margin=main_m)
-        report(f"rerank+polish*", res, base, show_failures=4)
+        res = evaluate(cases, polish=True)
+        report("+ T5 polish*", res, base, show_failures=4)
         print("      polish outcomes:", dict(Counter(r["info"].get("polish_source") for r in res)))
     print("\n  * these targets are already complete sentences, so polish can only "
           "tie or hurt here.\n    Judge polish with --polish-suite and --e2e.")
 
 
-def run_polish_suite():
+def run_polish_suite(strict):
     """Polish on CLEAN input, so it is measured on its own job (adding missing
     function words) instead of being judged on already-complete sentences,
     where it can only break things."""
-    from matos.text.llama_ranker import grammar_polish, get_llm
-    get_llm()
+    from matos.text.t5_polish import grammar_polish, get_t5
+    get_t5()
     print("\n\nPolish suite (clean input, no spelling errors)")
 
     ok = n_need = 0
     for gloss, want in GLOSS_CASES:
-        got, src, info = grammar_polish(gloss, gloss.split())
-        good = got == want
+        got, src, info = grammar_polish(gloss, gloss.split(), strict=strict)
+        good = sentence_exact(want, got)
         if gloss != want:                       # only count cases that need work
             n_need += 1
             ok += good
@@ -253,9 +242,9 @@ def run_polish_suite():
     same = 0
     reasons = Counter()
     for t in TARGETS:
-        got, src, info = grammar_polish(t, t.split())
-        same += (got == t)
-        if got != t:
+        got, src, info = grammar_polish(t, t.split(), strict=strict)
+        same += sentence_exact(t, got)
+        if not sentence_exact(t, got):
             print(f"  CHANGED already-correct sentence: {t!r} -> {got!r}")
         if src == "fallback":
             reasons[info.get("reason", "?")] += 1
@@ -263,47 +252,48 @@ def run_polish_suite():
           f"   fallback reasons: {dict(reasons)}")
 
 
-def run_e2e(n_trials, seed, weight, margin):
+def run_e2e(n_trials, seed, strict):
     """The realistic job: noisy fingerspelled gloss in, full English out.
     Target is the full sentence, so 'spelling only' can never be exact for
     sentences that need function words; the interesting number is how much
-    rerank and polish add on top, and whether polish breaks the controls."""
-    from matos.text.llama_ranker import get_llm
-    get_llm()
-    print(f"\n\nEnd-to-end: noisy gloss -> full English  (w={weight}, margin={margin})")
-    process_letter_chunks(["HELLO", "YOU"], rank=True, polish=True)   # warm-up
+    polish adds on top, and whether polish breaks the controls."""
+    from matos.text.t5_polish import get_t5
+    get_t5()
+    print("\n\nEnd-to-end: noisy gloss -> full English  (T5 polish)")
+    process_letter_chunks(["HELLO", "YOU"], polish=True)   # warm-up
 
     for mode, rate in [("random", 0.0), ("random", 0.10), ("mn", 0.10)]:
         cases = make_gloss_cases(rate, mode, n_trials, seed)
         print(f"\n--- mode={mode}  error_rate={rate:.0%}  ({len(cases)} sentences) ---")
         base = evaluate(cases)
         report("spelling only", base)
-        mid = evaluate(cases, rank=True, lm_weight=weight, lm_margin=margin)
-        report("+ LM rerank", mid, base)
-        full = evaluate(cases, rank=True, polish=True, lm_weight=weight, lm_margin=margin)
-        report("+ rerank + polish", full, base, show_failures=4)
+        full = evaluate(cases, polish=True)
+        report("+ T5 polish", full, base, show_failures=4)
         print("      polish outcomes:", dict(Counter(r["info"].get("polish_source") for r in full)))
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--llm", action="store_true", help="also run LM rerank/polish")
+    ap.add_argument("--t5", action="store_true", help="also run T5 polish")
     ap.add_argument("--polish-suite", action="store_true")
     ap.add_argument("--e2e", action="store_true", help="noisy gloss -> full English")
+    ap.add_argument("--t5-model", metavar="FOLDER", help="T5 export folder (default: models/asl_t5_onnx_opencv)")
+    ap.add_argument("--strict", action="store_true", help="accept only inserted function words from T5")
     ap.add_argument("--trials", type=int, default=5, help="repeats of the 20 targets (deterministic)")
-    ap.add_argument("--llm-trials", type=int, default=3, help="repeats of the targets (LLM runs)")
-    ap.add_argument("--weights", type=float, nargs="+", default=[0.05, 0.15, 0.3],
-                    help="LM weights to sweep; the middle one is used for the polish run")
-    ap.add_argument("--margins", type=float, nargs="+", default=[3.0],
-                    help="LM candidate margins to sweep; the first one is used for the polish run")
+    ap.add_argument("--t5-trials", type=int, default=3, help="repeats of the targets (T5 runs)")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
     run_fast(args.trials, args.seed)
-    if args.llm:
-        run_llm(args.llm_trials, args.seed, args.weights, args.margins)
+    if args.t5 or args.polish_suite or args.e2e:
+        from matos.text.t5_polish import get_t5
+        get_t5(args.t5_model)                       # load (and fail early) once; later get_t5() calls reuse it
+    if args.strict:
+        import matos.text.t5_polish as _t5p
+        _t5p.STRICT = True                          # process_letter_chunks() -> grammar_polish() reads this default
+    if args.t5:
+        run_t5(args.t5_trials, args.seed, args.strict)
     if args.polish_suite:
-        run_polish_suite()
+        run_polish_suite(args.strict)
     if args.e2e:
-        run_e2e(args.llm_trials, args.seed,
-                args.weights[len(args.weights) // 2], args.margins[0])
+        run_e2e(args.t5_trials, args.seed, args.strict)
