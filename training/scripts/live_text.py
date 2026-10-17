@@ -7,14 +7,15 @@ live_text.py - jembatan  matos/live.py  ->  matos/text/pipeline.py
 Bisa dijalankan dari folder mana pun. --bundle = nama run di models/ (run1 -> models/bundles/run1, base -> bundle dasar
 di models/base/) atau path lengkap:
 
-    python scripts/live_text.py --bundle run1                    # webcam, koreksi ejaan saja (cepat, tanpa LLM)
-    python scripts/live_text.py --bundle run1 --rank             # + LM rerank
-    python scripts/live_text.py --bundle run1 --rank --polish    # + grammar polish (menambah kata yang hilang)
+    python scripts/live_text.py --bundle run1                    # webcam, koreksi ejaan saja (cepat, tanpa model teks)
+    python scripts/live_text.py --bundle run1 --polish           # + T5 (ONNX) gloss -> kalimat Inggris
+    python scripts/live_text.py --bundle run1 --polish --t5-model D:/path/ke/asl_t5_onnx_opencv
     python scripts/live_text.py --bundle run2 --video clip.mp4 --no-show
     python scripts/live_text.py --bundle run1 --save-chunks real.jsonl   # simpan chunk asli untuk stress test
 
 Batas kalimat ditentukan LetterDecoder (event "sentence"), bukan SentenceAccumulator di pipeline.py.
-Pipeline jalan di worker thread supaya kamera / decoder tidak tersendat saat LLM sedang berpikir.
+Pipeline jalan di worker thread supaya kamera / decoder tidak tersendat saat T5 sedang berpikir.
+Model T5 dicari di models/asl_t5_onnx_opencv (atau $MATOS_T5_MODEL, atau --t5-model).
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ from matos.text.pipeline import process_letter_chunks  # noqa: E402
 
 class SentenceWorker(threading.Thread):
     """Antrian kalimat mentah -> process_letter_chunks -> teks akhir. Satu thread saja,
-    jadi llama.cpp tidak pernah dipakai dari dua thread sekaligus."""
+    jadi model T5 tidak pernah dipakai dari dua thread sekaligus."""
 
     def __init__(self, pipeline_kw: dict, save_path: str | None = None, log=print):
         super().__init__(daemon=True)
@@ -88,27 +89,23 @@ def main(argv=None) -> int:
     ap.add_argument("--engine", default="auto", choices=["auto", "opencv", "ort"])
     ap.add_argument("--max-seconds", type=float)
     # pipeline
-    ap.add_argument("--rank", action="store_true", help="LM rerank kandidat ejaan (butuh llama_cpp + model gguf)")
-    ap.add_argument("--polish", action="store_true", help="grammar polish (butuh llama_cpp + model gguf)")
-    ap.add_argument("--lm-weight", type=float, default=0.15)
-    ap.add_argument("--lm-margin", type=float, default=3.0)
+    ap.add_argument("--polish", action="store_true", help="T5 gloss -> English (butuh onnxruntime + tokenizers + folder model T5)")
+    ap.add_argument("--t5-model", metavar="FOLDER", help="folder export T5 (default: models/asl_t5_onnx_opencv)")
     ap.add_argument("--save-chunks", metavar="FILE.jsonl",
                     help="tambahkan {chunks, output} tiap kalimat ke file ini (bahan test dari data asli)")
     a = ap.parse_args(argv)
 
     from matos.live import run
 
-    if a.rank or a.polish:
-        print("[bridge] memuat LLM (sekali, sebelum kamera mulai)...")
-        from matos.text.llama_ranker import get_llm
+    if a.polish:
+        print("[bridge] memuat T5 (sekali, sebelum kamera mulai)...")
+        from matos.text.t5_polish import get_t5
 
-        get_llm()
-        process_letter_chunks(["HELLO", "YOU"], rank=a.rank, polish=a.polish)   # warm-up, kalimat pertama tidak lambat
+        t5 = get_t5(a.t5_model)
+        print(f"[bridge] T5 dari {t5.dir}")
+        process_letter_chunks(["HELLO", "YOU"], polish=True)   # warm-up, kalimat pertama tidak lambat
 
-    worker = SentenceWorker(
-        dict(rank=a.rank, polish=a.polish, lm_weight=a.lm_weight, lm_margin=a.lm_margin),
-        save_path=a.save_chunks,
-    )
+    worker = SentenceWorker(dict(polish=a.polish), save_path=a.save_chunks)
     worker.start()
 
     def on_event(e):

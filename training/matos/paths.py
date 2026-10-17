@@ -3,7 +3,9 @@ paths.py - the ONE place that knows where things live.  Nothing else in the proj
 
     models/                        things you DOWNLOAD (you drop them here yourself)
         hand_landmarker.task           MediaPipe hand model          (`python -m matos models` fetches it, or copy it in)
-        qwen2.5-3b-instruct-q4_k_m.gguf   LLM for --rank / --polish  (any *.gguf in models/ is picked up if this name is absent)
+        asl_t5_onnx_opencv/        fine-tuned T5-small for --polish  (encoder_model.onnx, decoder_model.onnx, tokenizer.json, ...)
+                                   ($MATOS_T5_MODEL or --t5-model <folder> point somewhere else; any other folder in models/ that
+                                    holds those files is picked up if this name is absent)
         base/                      models YOU trained that are the base / general ones
             baseline_rf.pkl, baseline_rf.onnx, verifier.pkl      (phase-0 baseline)
             bundle/                    the general MLP bundle      (config.json, letter_model.onnx, ...)
@@ -35,7 +37,8 @@ from typing import Callable, List, Optional, Sequence, Union
 
 from matos.config import HAND_MODEL_FILE
 
-LLM_FILE = "qwen2.5-3b-instruct-q4_k_m.gguf"
+T5_DIR_NAME = "asl_t5_onnx_opencv"
+T5_FILES = ("encoder_model.onnx", "decoder_model.onnx", "tokenizer.json")      # a folder with these is a usable T5 export
 PathLike = Union[str, "os.PathLike[str]"]
 
 
@@ -223,16 +226,27 @@ class Layout:
         legacy = [Path.cwd() / "models" / HAND_MODEL_FILE, Path.cwd() / HAND_MODEL_FILE, self.base / HAND_MODEL_FILE]
         return _first([default, *legacy], lambda c: c.is_file()) or default
 
-    def llm_model(self) -> Optional[Path]:
-        """the .gguf for --rank / --polish: $MATOS_LLM_MODEL > models/<qwen name> > the only/first *.gguf in models/."""
-        env = os.environ.get("MATOS_LLM_MODEL")
+    @staticmethod
+    def is_t5_dir(p: Path) -> bool:
+        return p.is_dir() and all((p / f).is_file() for f in T5_FILES)
+
+    def t5_candidates(self, spec: Optional[PathLike] = None) -> List[Path]:
+        """where the T5 export is looked for.  Explicit arg (a path, or a folder name inside models/) > $MATOS_T5_MODEL >
+        models/<T5_DIR_NAME> > any other folder in models/."""
+        if spec:
+            s = _norm(spec)
+            return [Path(s).expanduser()] if _explicit(s) else [self.models / s, Path.cwd() / s]
+        env = os.environ.get("MATOS_T5_MODEL")
         if env:
-            return Path(env).expanduser()
-        exact = self.models / LLM_FILE
-        if exact.is_file():
-            return exact
-        ggufs = sorted(self.models.glob("*.gguf")) if self.models.is_dir() else []
-        return ggufs[0] if ggufs else None
+            return [Path(env).expanduser()]
+        out = [self.models / T5_DIR_NAME]
+        if self.models.is_dir():
+            out += [d for d in sorted(self.models.iterdir()) if d.is_dir() and d.name != T5_DIR_NAME]
+        return out
+
+    def t5_model(self, spec: Optional[PathLike] = None) -> Optional[Path]:
+        """the folder with encoder_model.onnx + decoder_model.onnx + tokenizer.json for --polish, or None."""
+        return _first(self.t5_candidates(spec), self.is_t5_dir)
 
 
 LAYOUT = Layout()

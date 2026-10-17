@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from matos.paths import LAYOUT, LLM_FILE, Layout, warn_if_exists  # noqa: E402
+from matos.paths import LAYOUT, T5_DIR_NAME, T5_FILES, Layout, warn_if_exists  # noqa: E402
 
 
 def _bundle(p: Path, tag: str = ""):
@@ -96,11 +96,39 @@ def test_downloaded_models_sit_directly_in_models():
         (L.models / "hand_landmarker.task").write_bytes(b"x")
         assert L.hand_model() == L.models / "hand_landmarker.task"
         assert L.hand_model("my.task") == Path("my.task")
-        assert L.llm_model() is None
-        (L.models / "some-other.gguf").write_bytes(b"x")
-        assert L.llm_model() == L.models / "some-other.gguf"                # any gguf is picked up ...
-        (L.models / LLM_FILE).write_bytes(b"x")
-        assert L.llm_model() == L.models / LLM_FILE                         # ... but the expected name wins
+
+
+def _t5(p: Path):
+    p.mkdir(parents=True, exist_ok=True)
+    for n in T5_FILES:
+        (p / n).write_bytes(b"x")
+    return p
+
+
+def test_t5_folder_lookup():
+    keep = os.environ.pop("MATOS_T5_MODEL", None)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            L = _layout(d)
+            assert L.t5_model() is None                                      # nothing there yet
+            (L.models / "half_exported").mkdir(parents=True)
+            (L.models / "half_exported" / "encoder_model.onnx").write_bytes(b"x")
+            assert L.t5_model() is None                                      # a folder missing files is not a T5 export
+            other = _t5(L.models / "my_other_t5")
+            assert L.t5_model() == other                                     # any complete folder in models/ is picked up ...
+            std = _t5(L.models / T5_DIR_NAME)
+            assert L.t5_model() == std                                       # ... but the expected name wins
+            assert L.t5_model("my_other_t5") == other                        # a bare name is looked up inside models/
+            elsewhere = _t5(Path(d) / "elsewhere" / "t5")
+            assert L.t5_model(str(elsewhere)) == elsewhere                   # explicit paths are used as written
+            assert L.t5_model(str(elsewhere).replace("/", "\\")) == elsewhere   # Windows-style separators
+            assert L.t5_model(str(Path(d) / "nope")) is None                 # an explicit path that is not a T5 folder
+            os.environ["MATOS_T5_MODEL"] = str(elsewhere)
+            assert L.t5_model() == elsewhere                                 # env var beats the default folder
+    finally:
+        os.environ.pop("MATOS_T5_MODEL", None)
+        if keep is not None:
+            os.environ["MATOS_T5_MODEL"] = keep
 
 
 def test_works_from_any_working_directory():
