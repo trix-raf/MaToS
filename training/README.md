@@ -123,7 +123,7 @@ python -m matos extract --src signer2=signer2 --out shards
 python -m matos train --shards shards --out base/bundle --seeds 3 --features xyz_geo --synth-nothing auto
 python -m matos finetune --bundle base --shards shards --user signer2 --out run1
 python -m matos live --bundle run1 --camera 1                              # letters / words
-python scripts/live_text.py --bundle run1 --camera 1 --rank --polish      # full sentences (drop --rank/--polish for spelling-only, no LLM)
+python scripts/live_text.py --bundle run1 --camera 1 --polish      # full sentences (drop --polish for spelling-only, no LLM)
 ```
 A training run of its own goes the same way: `python -m matos train --shards shards --out run2 ...`.
 No data yet? `python -m matos synth --out shards` makes fake landmarks so you can run every command (accuracy numbers are meaningless).
