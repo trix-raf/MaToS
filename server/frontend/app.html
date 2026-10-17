@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Translation workspace — MaToS</title>
+  <meta name="description" content="Turn on your camera and translate sign language into text in real time.">
+  <meta name="theme-color" content="#6550d8">
+  <link rel="icon" type="image/svg+xml" href="image/logo.svg">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="app">
+
+  <header class="app-nav">
+    <div class="app-nav__left">
+      <a class="brand" href="index.html" aria-label="MaToS home">
+        <span class="brand__mark"><i data-icon="hand"></i></span>
+        <span class="brand__name">MaToS</span>
+      </a>
+      <span class="app-nav__divider" aria-hidden="true"></span>
+      <span class="app-nav__current" aria-current="page">Translation workspace</span>
+    </div>
+    <a class="app-nav__about" href="index.html">About <i data-icon="arrow-right"></i></a>
+  </header>
+
+  <main class="workspace">
+
+    <!-- Setup -->
+    <section class="workspace__setup" aria-labelledby="ws-title">
+      <div class="workspace__intro">
+        <div>
+          <h1 class="workspace__title" id="ws-title">From sign to understanding.</h1>
+          <p class="workspace__desc">Your words, in real time. Turn on your camera to translate sign language into text.</p>
+        </div>
+        <span class="pill"><i data-icon="sparkles"></i>New translation</span>
+      </div>
+
+      <div class="prefs">
+        <label class="field">
+          <span class="field__label">Sign language</span>
+          <span class="select">
+            <i class="select__icon" data-icon="hand"></i>
+            <select id="sign-language">
+              <option value="asl" selected>American Sign Language (ASL)</option>
+              <option value="bsl">British Sign Language (BSL)</option>
+              <option value="bisindo">Bahasa Isyarat Indonesia (BISINDO)</option>
+            </select>
+            <i class="select__chevron" data-icon="chevron-down"></i>
+          </span>
+        </label>
+
+        <span class="prefs__arrow" aria-hidden="true"><i data-icon="arrow-right"></i></span>
+
+        <label class="field">
+          <span class="field__label">Translate to</span>
+          <span class="select">
+            <i class="select__icon" data-icon="languages"></i>
+            <select id="target-language">
+              <option value="English" selected>English</option>
+              <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+            </select>
+            <i class="select__chevron" data-icon="chevron-down"></i>
+          </span>
+        </label>
+
+        <p class="prefs__mode"><i data-icon="zap"></i>Real-time translation</p>
+      </div>
+    </section>
+
+    <!-- Camera + transcript -->
+    <section class="panels" aria-label="Translation">
+      <article class="panel camera">
+        <div class="panel__head">
+          <h2 class="panel__title"><i data-icon="video"></i>Camera</h2>
+          <span class="status" id="camera-status"><span class="status__dot"></span><span id="camera-status-label">Camera off</span></span>
+        </div>
+
+        <div class="camera__inset">
+          <div class="camera__stage" id="camera-stage">
+            <video class="camera__video is-mirrored" id="camera-video" autoplay playsinline muted></video>
+            <canvas class="camera__landmarks" id="camera-landmarks" aria-hidden="true"></canvas>
+            <span class="camera__tracking" id="camera-tracking" aria-live="polite">Show your hands</span>
+            <button class="camera__stop" id="camera-stop" type="button"><i data-icon="video"></i>Stop camera</button>
+
+            <div class="camera__idle">
+              <span class="camera__guide" aria-hidden="true"></span>
+              <span class="camera__symbol"><i data-icon="video"></i></span>
+              <h3 class="camera__heading">Ready when you are</h3>
+              <p class="camera__explain">Allow camera access so MaToS can see your signs. Your camera stays off until you start.</p>
+              <button class="camera__start" id="camera-start" type="button"><i data-icon="video"></i>Start camera</button>
+              <p class="camera__note" id="camera-note"><i data-icon="lock-keyhole"></i><span>Your browser will ask for permission</span></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel__foot camera__controls">
+          <label class="device">
+            <i data-icon="webcam"></i>
+            <select id="camera-device" aria-label="Camera device">
+              <option value="">Default camera</option>
+            </select>
+            <i class="device__chevron" data-icon="chevron-down"></i>
+          </label>
+
+          <label class="switch-row">
+            <i data-icon="flip-horizontal-2"></i>
+            <span>Mirror preview</span>
+            <span class="switch">
+              <input type="checkbox" id="mirror-toggle" role="switch" checked>
+              <span class="switch__track"></span><span class="switch__thumb"></span>
+            </span>
+          </label>
+
+        </div>
+      </article>
+
+      <article class="panel transcript-panel" id="transcript" data-size="md">
+        <div class="panel__head">
+          <h2 class="panel__title"><i data-icon="captions"></i>Translated text</h2>
+          <span class="status" id="text-status"><span class="status__dot"></span><span id="text-status-label">Not started</span></span>
+        </div>
+
+        <div class="transcript">
+          <div class="transcript__prefs">
+            <span class="transcript__lang" id="transcript-lang">English transcript</span>
+            <label class="size">
+              <span>Text size</span>
+              <span class="size__select">
+                <select id="text-size" aria-label="Text size">
+                  <option value="sm">A</option>
+                  <option value="md" selected>Aa</option>
+                  <option value="lg">AA</option>
+                </select>
+                <i data-icon="chevron-down"></i>
+              </span>
+            </label>
+          </div>
+
+          <div class="transcript__body" aria-live="polite">
+            <div class="empty" id="empty-state">
+              <span class="empty__symbol"><i data-icon="text"></i></span>
+              <h3 class="empty__title">A space for your words</h3>
+              <p class="empty__text">Start your camera and begin signing. Your translation will appear here as you go.</p>
+            </div>
+            <p class="transcript__text" id="transcript-text"></p>
+          </div>
+
+          <div class="transcript__meta">
+            <span id="word-count">0 words</span>
+            <span id="save-state">Nothing to save yet</span>
+          </div>
+        </div>
+
+        <div class="panel__foot">
+          <div class="actions">
+            <button class="action" id="copy-btn" type="button" disabled><i data-icon="copy"></i><span>Copy text</span></button>
+            <button class="action" id="download-btn" type="button" disabled><i data-icon="download"></i><span>Download</span></button>
+          </div>
+          <button class="action action--link" id="clear-btn" type="button" disabled>Clear</button>
+        </div>
+      </article>
+    </section>
+
+    <!-- Guidance -->
+    <section class="workspace__guidance" aria-label="Tips">
+      <div class="guidance">
+        <div class="guidance__intro">
+          <h2 class="guidance__heading">A little setup helps.</h2>
+          <p class="guidance__sub">For clearer translations</p>
+        </div>
+        <span class="guidance__divider" aria-hidden="true"></span>
+        <div class="tips">
+          <div class="tip">
+            <span class="tip__symbol"><i data-icon="scan"></i></span>
+            <div><h3 class="tip__title">Stay in frame</h3><p class="tip__text">Keep your hands, face and upper body visible.</p></div>
+          </div>
+          <div class="tip">
+            <span class="tip__symbol"><i data-icon="sun"></i></span>
+            <div><h3 class="tip__title">Find good lighting</h3><p class="tip__text">Face a light source with a clear background.</p></div>
+          </div>
+          <div class="tip">
+            <span class="tip__symbol"><i data-icon="hand"></i></span>
+            <div><h3 class="tip__title">Sign naturally</h3><p class="tip__text">Use a comfortable pace.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="workspace__foot">
+        <p class="note"><i data-icon="info"></i>AI translations may not be exact. Confirm important details with your conversation partner.</p>
+        <a class="feedback" href="#">Share feedback <i data-icon="arrow-up-right"></i></a>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/icons.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

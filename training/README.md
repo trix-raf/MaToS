@@ -114,6 +114,10 @@ python -m matos models                   # downloads models/hand_landmarker.task
 ```
 For `--rank` / `--polish` put a Qwen `.gguf` in `models/` (`qwen2.5-3b-instruct-q4_k_m.gguf`; any `*.gguf` there is picked up).
 
+## Models
+Models (recoomended run2)
+https://drive.google.com/drive/folders/1uSY-Avw0rWTxOqupak-BsrrNJsLAaNa7?usp=sharing
+
 ## Quick start
 ```
 python scripts/kaggle_dataset.py                                           # prints the dataset path
