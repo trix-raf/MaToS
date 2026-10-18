@@ -30,7 +30,7 @@ class DecoderParams:
     hold_s: float = 0.35
     space_hold_s: float = 0.30
     release_s: float = 0.12
-    repeat_s: float = 1.3
+    repeat_s: float = 2.5
     word_pause_s: float = 0.9
     pause_s: float = 1.5
 

@@ -1,0 +1,18 @@
+/* bridge HUD - neutral colours so it works with the page's light and dark themes */
+.mt-hud { margin: 10px 0 0; padding: 10px 14px 12px; border-radius: 14px; font-size: 14px; font-weight: 500; line-height: 1.3;
+  background: rgba(127,127,127,.12); border: 1px solid rgba(127,127,127,.22); }
+.mt-hud[hidden] { display: none; }
+.mt-hud__top { display: flex; align-items: center; gap: 10px; }
+.mt-hud__letter { min-width: 1.4em; text-align: center; font-size: 28px; font-weight: 700; line-height: 1; opacity: .35; }
+.is-hand .mt-hud__letter { opacity: 1; }
+.mt-hud__conf { font-variant-numeric: tabular-nums; opacity: .7; }
+.mt-hud__link { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: .85; }
+.mt-hud__link i { width: 8px; height: 8px; border-radius: 50%; background: #e6a700; }
+.mt-hud[data-link="online"] .mt-hud__link i, .mt-hud[data-link="http"] .mt-hud__link i { background: #22b573; }
+.mt-hud[data-link="offline"] .mt-hud__link i { background: #e5484d; }
+.mt-hud__bar { height: 5px; margin: 9px 0 8px; border-radius: 3px; background: rgba(127,127,127,.22); overflow: hidden; }
+.mt-hud__bar i { display: block; height: 100%; width: 0; background: #22b573; transition: width .08s linear; }
+.mt-hud__line { min-height: 1.5em; font-size: 20px; font-weight: 600; letter-spacing: .06em; overflow-wrap: anywhere; }
+.mt-hud__pending { opacity: .45; }
+.mt-hud__caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -.12em; background: currentColor; opacity: .5; animation: mt-blink 1s steps(2) infinite; }
+@keyframes mt-blink { 50% { opacity: 0; } }
