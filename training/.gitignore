@@ -20,3 +20,5 @@ data/landmarks_raw.npz
 data/names.txt
 models/asl_t5_onnx_opencv
 legacy/
+
+*.zip
