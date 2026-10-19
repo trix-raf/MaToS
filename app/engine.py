@@ -21,6 +21,7 @@ class Engine:
         self.F, self.CLASSES, self.LetterDecoder = F, CLASSES, LetterDecoder
         self.log = log
         self.text_mode = cfg.text_mode
+        self.squeeze = cfg.squeeze            # repeated-letter stage (matos/text/repeats.py)
         self.mirror = CAMERA_MIRROR if cfg.mirror is None else cfg.mirror
 
         spec = cfg.bundle or self._newest_bundle(LAYOUT)
@@ -75,10 +76,12 @@ class Engine:
         if self._process is None:
             return raw, {}
         try:
-            corrected, final, _combos, info = self._process(list(words), polish=self.polish)
+            corrected, final, _combos, info = self._process(list(words), polish=self.polish, squeeze=self.squeeze)
         except Exception as e:  # noqa: BLE001
             self.log(f"[text] correction failed for {words!r}: {type(e).__name__}: {e}")
             return raw, {}
+        if info.get("repeat_fixes"):
+            self.log(f"[text] repeated letters: {info['repeat_fixes']}")
         return (final or corrected or raw), info
 
     # -- per frame ----------------------------------------------------------------------------------------------------
@@ -90,4 +93,4 @@ class Engine:
 
     def info(self) -> dict:
         return dict(bundle=str(self.bundle_name), engine=self.bundle.engine.name, features=self.bundle.fs,
-                    text_mode=self.text_mode, text_stage=self.text_stage, mirror=self.mirror)
+                    text_mode=self.text_mode, text_stage=self.text_stage, repeats=self.squeeze, mirror=self.mirror)

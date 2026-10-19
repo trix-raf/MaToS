@@ -6,6 +6,9 @@ Spelling correction for fingerspelled letter chunks.
 Files read at import time (looked up as written, in the CWD, then in <project>/data/, then next to this file):
     data/dictionary.tsv   word <TAB> zipf-frequency          (required; rebuild: python scripts/build_dictionary.py)
     data/names.txt        one name per line, '#' comments    (optional, see below)
+
+Repeated letters (PAAINT -> PAINT, ROOMY -> ROMY when ROMY is in names.txt) are handled by matos/text/repeats.py,
+which `candidates()` calls; pass squeeze=False to get the plain edit-distance behaviour.
 """
 import csv
 import re
@@ -15,6 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from matos.paths import LAYOUT
+from matos.text import repeats as _repeats
 
 
 # ---------------------------------------------------------------------------
@@ -207,13 +211,36 @@ def _candidates_cached(chunk, top_k, max_dist):
     return tuple(scored[:top_k])
 
 
-def candidates(chunk, top_k=8, max_dist=2.5):
+def _with_repeat_fixes(chunk, base, top_k):
+    """Merge the repeated-letter candidates (repeats.py) into the edit-distance candidates for `chunk`."""
+    best = {w: (w, s, d) for w, s, d in base}
+    for w, d in _repeats.squeeze_candidates(chunk, is_word=DICT_WORD_SET.__contains__, prior=FREQ_LOOKUP,
+                                            names=NAMES, blocked=BLOCKED):
+        s = FREQ_LOOKUP[w] - DIST_WEIGHT * d * d            # same formula as every other candidate
+        if w not in best or s > best[w][1]:
+            best[w] = (w, s, d)
+    # A word nobody knows (a new name) is kept raw - but never with 3+ equal letters in a row.
+    capped = _repeats.cap_runs(chunk)
+    if capped != chunk and chunk not in DICT_WORD_SET and chunk in best and best[chunk][1] == RAW_KEEP_SCORE:
+        _w, s, d = best.pop(chunk)
+        best.setdefault(capped, (capped, s, d))
+    out = sorted(best.values(), key=lambda x: (-x[1], x[2], x[0]))
+    return out[:top_k]
+
+
+def candidates(chunk, top_k=8, max_dist=2.5, squeeze=True):
     """[(word, score, dist), ...] best first. Single letters are NOT special-
-    cased: 'T' competes with TO/IT/AT, 'A' with AM/AN/AS, etc."""
+    cased: 'T' competes with TO/IT/AT, 'A' with AM/AN/AS, etc.
+
+    squeeze=True also considers the chunk with repeated letters collapsed (PAAINT -> PAINT, ROOMY -> ROMY if ROMY is
+    in names.txt), see matos/text/repeats.py.  A real word with a real double letter (HELLO) is never touched."""
     chunk = re.sub(r"[^A-Z]", "", chunk.upper())
     if not chunk:
         return []
-    return list(_candidates_cached(chunk, top_k, max_dist))
+    base = list(_candidates_cached(chunk, top_k, max_dist))
+    if squeeze and _repeats.has_repeats(chunk):
+        return _with_repeat_fixes(chunk, base, top_k)
+    return base
 
 
 # ---------------------------------------------------------------------------

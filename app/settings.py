@@ -43,6 +43,7 @@ class Settings:
     mirror: Optional[bool] = None       # None -> matos.config.CAMERA_MIRROR (what the model was trained with)
     text_mode: str = "sentences"        # sentences: autocorrected sentence after a pause | words: every finished word at once
     polish: bool = False                # T5 grammar polish on sentences (needs models/asl_t5_onnx_opencv)
+    squeeze: bool = True                # repeated letters: PAAINT -> PAINT, ROOMY -> ROMY if ROMY is in names.txt (False = old behaviour)
     https: bool = True                  # phones only allow camera access on https (or localhost)
     frontend: Path = DEFAULT_FRONTEND
     training: Optional[Path] = None

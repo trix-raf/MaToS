@@ -18,7 +18,7 @@ def _banner(cfg: Settings, engine, ips, public_url=None):
         urls = [f"{scheme}://{ip}:{cfg.port}/app.html{q}" for ip in ips] or [f"{scheme}://localhost:{cfg.port}/app.html{q}"]
     print("\n" + "=" * 72)
     print(f"  MaToS bridge ready   bundle: {engine.bundle_name}   engine: {engine.bundle.engine.name}")
-    print(f"  text: mode={engine.text_mode}  stage={engine.text_stage}   mirror={engine.mirror}")
+    print(f"  text: mode={engine.text_mode}  stage={engine.text_stage}   repeats={'on' if engine.squeeze else 'off'}   mirror={engine.mirror}")
     if public_url:
         print("  open on the phone (ANY network - mobile data works too):")
     else:
@@ -57,6 +57,8 @@ def main(argv=None) -> int:
     ap.add_argument("--text-mode", default="sentences", choices=["sentences", "words"],
                     help="sentences: autocorrected sentence after a ~1.5 s pause (default) | words: each word as soon as it ends, uncorrected")
     ap.add_argument("--polish", action="store_true", help="T5 grammar polish on sentences (needs models/asl_t5_onnx_opencv)")
+    ap.add_argument("--no-squeeze", action="store_true",
+                    help="do not collapse repeated letters (PAAINT -> PAINT, ROOMY -> ROMY via names.txt); plain spelling correction only")
     ap.add_argument("--no-mirror", action="store_true", help="do not mirror landmarks (live.py --no-mirror)")
     ap.add_argument("--no-https", action="store_true", help="plain http: camera then only works on localhost, NOT on a phone")
     ap.add_argument("--no-qr", action="store_true")
@@ -72,7 +74,7 @@ def main(argv=None) -> int:
 
     key = None if a.no_auth else (a.key or os.environ.get("MATOS_KEY") or (secrets.token_urlsafe(12) if a.ngrok else None))
     cfg = Settings(host=a.host or ("127.0.0.1" if a.ngrok else "0.0.0.0"), port=a.port, bundle=a.bundle, engine=a.engine,
-                   mirror=False if a.no_mirror else None, text_mode=a.text_mode, polish=a.polish,
+                   mirror=False if a.no_mirror else None, text_mode=a.text_mode, polish=a.polish, squeeze=not a.no_squeeze,
                    https=not (a.no_https or a.ngrok),       # ngrok brings its own valid certificate: plain http locally
                    frontend=a.frontend, training=a.training, qr=not a.no_qr,
                    ngrok=a.ngrok, ngrok_token=a.ngrok_token, ngrok_domain=a.ngrok_domain, key=key)

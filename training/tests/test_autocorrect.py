@@ -20,6 +20,14 @@ def checks():
     out += [(f"name from names.txt survives: {n}", top(n) == [n]) for n in sorted(NAMES)[:5]]
     out.append(("typo is never 'corrected' into a BLOCKED word",
                 all(w not in BLOCKED for ch in ("WTX", "SXE", "ASD") for w in top(ch, 8) if w != ch)))
+    out += [
+        ("repeated letters collapse: PAAINT -> PAINT", top("PAAINT") == ["PAINT"]),
+        ("3+ equal letters collapse: HEEEELLO -> HELLO", top("HEEEELLO") == ["HELLO"]),
+        ("a real double letter stays: HELLO", top("HELLO") == ["HELLO"]),
+        ("a common word is not collapsed into another word: TOO", top("TOO") == ["TOO"]),
+        ("squeeze=False keeps the old behaviour (no collapsing of 3+ runs)",
+         [c[0] for c in candidates("PAAAAAINT", top_k=1, squeeze=False)] == ["PAAAAAINT"]),
+    ]
     per = [candidates(c) for c in ("MY", "NME", "IS")]
     combos = build_combinations(per, with_scores=True)
     out.append(("combos[0] == per-chunk argmax", combos[0][0] == " ".join(p[0][0] for p in per)))
