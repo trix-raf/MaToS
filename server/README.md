@@ -1,16 +1,15 @@
-Welcome to the web app side of matos 
+Welcome to the client side side of matos 
+we use this stacks because of we dont want the website to be too heavy for the client device to handle:
 
-stacks
+**Front End:**
+* Vue.JS
+* Typescript
 
-Front End:
-Vue JS
-React
-Typescript
-Vite
+**Camera Handling:**
+* MediaPipe
 
-Beck End:
-Fast API
+**Special Shoutout to:**
+https://github.com/maxpain-sys/dimensional-rift-tear/ for the solution of the ghost effect for mediapipe hand landmark
 
-
-Quick Start:
+Quick Start localhost:
 cd frontend/; python -m http.server 8000 -> visit http://localhost:8000
