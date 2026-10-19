@@ -5,6 +5,7 @@ const wordCount = $('word-count');
 const saveState = $('save-state');
 const copyBtn = $('copy-btn');
 const downloadBtn = $('download-btn');
+const speakBtn = $('speak-btn');
 const clearBtn = $('clear-btn');
 const sizeSelect = $('text-size');
 const targetLanguage = $('target-language');
@@ -26,15 +27,16 @@ function refresh() {
   panel.classList.toggle('has-text', count > 0);
   wordCount.textContent = `${count} ${count === 1 ? 'word' : 'words'}`;
   saveState.textContent = count ? 'Ready to copy or download' : 'Nothing to save yet';
+  speakBtn.disabled = !count || speakBtn.dataset.unsupported === 'true';
   copyBtn.disabled = downloadBtn.disabled = clearBtn.disabled = count === 0;
 }
 
 function appendTranscript(value) {
   if (!value) return;
   text.textContent += `${text.textContent ? ' ' : ''}${value}`;
-  text.parentElement.scrollTop = text.parentElement.scrollHeight;
   if (cameraActive) setStatus('Translating', true);
   refresh();
+  text.parentElement.scrollTop = text.parentElement.scrollHeight;
 }
 
 function flash(button, label) {

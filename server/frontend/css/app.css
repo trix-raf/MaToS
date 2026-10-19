@@ -55,7 +55,7 @@ body.app { background: var(--app-bg); color: var(--app-ink); min-height: 100vh; 
 
 /* ---- Panels ---- */
 .panels { display: grid; grid-template-columns: 744fr 576fr; gap: 24px; }
-.panel { display: flex; flex-direction: column; min-height: 492px; background: #fff; border: 1px solid var(--app-line); border-radius: 16px; overflow: hidden; }
+.panel { display: flex; flex-direction: column; height: 644px; min-height: 492px; background: #fff; border: 1px solid var(--app-line); border-radius: 16px; overflow: hidden; }
 .panel__head { display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 24px; flex: none; }
 .panel__title { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; line-height: 1.25; }
 .panel__title .icon { font-size: 20px; color: var(--purple); stroke-width: 1.7; }
@@ -159,7 +159,7 @@ body.app { background: var(--app-bg); color: var(--app-ink); min-height: 100vh; 
 .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .transcript__meta { display: flex; align-items: center; justify-content: space-between; height: 32px; flex: none; font-size: 12px; color: var(--app-muted); }
 
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .action {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
   border-radius: 8px; background: var(--app-chip); color: var(--app-ink); font-size: 14px; font-weight: 600; line-height: 1;
