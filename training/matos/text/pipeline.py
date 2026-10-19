@@ -1,6 +1,7 @@
 import warnings
 
 from matos.text.autocorrect import candidates, build_combinations
+from matos.text.repeats import has_repeats
 
 
 def process_letter_chunks(
@@ -9,13 +10,17 @@ def process_letter_chunks(
     top_k_per_chunk=6,
     top_n_combos=20,
     rank=False,
+    squeeze=True,
 ):
     """
     Returns (corrected, final, combos, info)
       corrected : best sentence after spelling correction (edit score + word frequency)
       final     : T5 grammar-polished sentence (None unless polish=True)
       combos    : candidate sentences, best edit-score first
-      info      : rank_source / polish_source / reasons, for debugging
+      info      : rank_source / polish_source / reasons, for debugging;  "repeat_fixes" = {typed: chosen} for every chunk
+                  whose repeated letters were collapsed (PAAINT -> PAINT, ROOMY -> ROMY)
+
+    squeeze   : handle repeated letters (matos/text/repeats.py).  False = plain edit-distance spelling correction.
 
     rank      : REMOVED with the Qwen stage (it needed a causal LM to score sentences; the fine-tuned T5 is a
                 gloss -> English model, not that).  Accepted so old callers do not crash; it only warns.
@@ -27,7 +32,7 @@ def process_letter_chunks(
     if not chunks:
         return "", None, [], {"reason": "no input"}
 
-    per_chunk = [candidates(ch, top_k=top_k_per_chunk) for ch in chunks]
+    per_chunk = [candidates(ch, top_k=top_k_per_chunk, squeeze=squeeze) for ch in chunks]
     scored = build_combinations(per_chunk, top_n=top_n_combos, with_scores=True)
     if not scored:
         return "", None, [], {"reason": "no candidates"}
@@ -35,6 +40,10 @@ def process_letter_chunks(
     combos = [s for s, _ in scored]
     corrected = combos[0]
     info = {"rank_source": "score"}
+    if squeeze:
+        fixes = {ch.upper(): c[0][0] for ch, c in zip(chunks, per_chunk) if has_repeats(ch.upper()) and c[0][0] != ch.upper()}
+        if fixes:
+            info["repeat_fixes"] = fixes
 
     if not polish:
         return corrected, None, combos, info
@@ -85,7 +94,7 @@ def stream_sentences(word_stream, pause_threshold_s=1.5):
 
 if __name__ == "__main__":
     print("=== word candidates ===")
-    for ch in ["NME", "THNK", "MY", "LOKY", "HELO", "WRD", "T", "A"]:
+    for ch in ["NME", "THNK", "MY", "LOKY", "HELO", "WRD", "T", "A", "PAAINT", "HELLO", "HEEELLO"]:
         print(ch, "->", [c[0] for c in candidates(ch, top_k=4)])
 
     print("\n=== sentence tests (deterministic) ===")
