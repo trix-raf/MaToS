@@ -28,7 +28,7 @@ function speakTranscript() {
   const utterance = new SpeechSynthesisUtterance(value);
   utterance.lang = languageCodes[targetLanguage.value] || navigator.language;
   utterance.onstart = () => {
-    if (currentUtterance === utterance) setButtonState('Stop speaking', true);
+    if (currentUtterance === utterance) setButtonState('Stop', true);
   };
   utterance.onend = () => {
     if (currentUtterance === utterance) stopSpeech();
