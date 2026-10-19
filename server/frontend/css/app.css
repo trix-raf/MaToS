@@ -145,7 +145,7 @@ body.app { background: var(--app-bg); color: var(--app-ink); min-height: 100vh; 
 }
 .size__select .icon { position: absolute; right: 6px; font-size: 14px; pointer-events: none; }
 
-.transcript__body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; overflow-y: auto; padding: 16px 0; }
+.transcript__body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; overflow-y: auto; padding: 16px 0; }
 .empty__symbol { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--app-teal-50); color: var(--purple); font-size: 26px; }
 .empty__symbol .icon { stroke-width: 1.7; }
 .empty__title { font-size: 21px; font-weight: 600; line-height: 1.2; }
