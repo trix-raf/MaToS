@@ -1,5 +1,5 @@
 /* bridge HUD - neutral colours so it works with the page's light and dark themes */
-.mt-hud { margin: 10px 0 0; padding: 10px 14px 12px; border-radius: 14px; font-size: 14px; font-weight: 500; line-height: 1.3;
+.mt-hud { min-width: 0; flex: none; margin: 10px 16px 0; padding: 10px 14px 12px; border-radius: 14px; font-size: 14px; font-weight: 500; line-height: 1.3;
   background: rgba(127,127,127,.12); border: 1px solid rgba(127,127,127,.22); }
 .mt-hud[hidden] { display: none; }
 .mt-hud__top { display: flex; align-items: center; gap: 10px; }

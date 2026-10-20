@@ -18,7 +18,7 @@ function setButtonState(label, speaking) {
 function stopSpeech() {
   currentUtterance = null;
   window.speechSynthesis.cancel();
-  setButtonState('Listen', false);
+  setButtonState('Speak', false);
 }
 
 function speakTranscript() {
@@ -42,7 +42,7 @@ function speakTranscript() {
 
   window.speechSynthesis.cancel();
   currentUtterance = utterance;
-  setButtonState('Listen', false);
+  setButtonState('Speak', false);
   try {
     window.speechSynthesis.speak(utterance);
   } catch (error) {
