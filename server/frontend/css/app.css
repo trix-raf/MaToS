@@ -69,7 +69,7 @@ body.app { background: var(--app-bg); color: var(--app-ink); min-height: 100vh; 
 @keyframes pulse { 50% { opacity: .35; } }
 
 /* ---- Camera ---- */
-.camera__inset { padding: 16px; flex: 1; min-height: 500px; display: flex; }
+.camera__inset { padding: 16px; flex: 1; min-height: 0; display: flex; }
 .camera__stage {
   position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
   border-radius: 12px; background: var(--app-dark); color: #fff; overflow: hidden; text-align: center; padding: 24px;
@@ -134,7 +134,7 @@ body.app { background: var(--app-bg); color: var(--app-ink); min-height: 100vh; 
 .switch input:focus-visible ~ .switch__track { outline: 2px solid var(--purple); outline-offset: 2px; }
 
 /* ---- Transcript ---- */
-.transcript { display: flex; flex-direction: column; flex: 1; min-height: 350px; padding: 4px 24px 0; }
+.transcript { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 4px 24px 0; }
 .transcript__prefs { display: flex; align-items: center; justify-content: space-between; height: 44px; flex: none; border-bottom: 1px solid var(--app-line); font-size: 12px; color: var(--app-muted); }
 .transcript__lang { font-weight: 500; }
 .size { display: inline-flex; align-items: center; gap: 12px; }
