@@ -16,3 +16,13 @@
 .mt-hud__pending { opacity: .45; }
 .mt-hud__caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -.12em; background: currentColor; opacity: .5; animation: mt-blink 1s steps(2) infinite; }
 @keyframes mt-blink { 50% { opacity: 0; } }
+
+/* word level */
+.mt-hud__sign { font-size: 18px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 11em; }
+.mt-hud__sign[data-kind="ok"] { color: #22b573; }
+.mt-hud__sign[data-kind="miss"] { opacity: .5; font-weight: 500; }
+.is-seg .mt-hud__sign:empty::before { content: "\25CF  signing"; font-size: 12px; font-weight: 500; letter-spacing: 0; color: #e6a700; }
+.mt-hud__mode { display: flex; gap: 6px; margin-top: 8px; }
+.mt-hud__mode[hidden] { display: none; }
+.mt-hud__mode button { flex: 1; padding: 5px 4px; border-radius: 8px; border: 1px solid rgba(127,127,127,.3); background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.mt-hud__mode button.is-on { background: rgba(34,181,115,.18); border-color: #22b573; font-weight: 700; }

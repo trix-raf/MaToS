@@ -14,3 +14,8 @@ CAMERA_MIRROR = True    # capture_signer2.py and the live app both flip the webc
 HAND_MODEL_FILE = "hand_landmarker.task"
 HAND_MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/"
                   "float16/1/hand_landmarker.task")
+# -- word (sign) level ---------------------------------------------------------------------------------------------
+WORD_FEATURE_VERSION = "1"   # bump whenever matos/words/holistic.py (normalisation / features) or the CNN layout changes
+WORD_SEQ_LEN = 32            # frames the word CNN sees (a finished sign is resampled to this length)
+WORD_STORE_LEN = 48          # frames kept per sample in the word shards (more than WORD_SEQ_LEN: room for temporal augmentation)
+NONE_LABEL = "<none>"        # background class of the word model: raise / lower / hold / fingerspelling-like motion

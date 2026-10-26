@@ -31,6 +31,14 @@ class Engine:
                                        if k in DecoderParams.__dataclass_fields__})
         self.verifier = self.bundle.verifier
 
+        self.words = None                      # matos.words.engine.WordClassifier, or None = letters only
+        self.word_bundle = None
+        self.mode = "letters"
+        self.seg_params = self.hybrid_params = None
+        self.H = self.FrameObs = self.HybridDecoder = None
+        if cfg.mode != "letters":
+            self._init_words(cfg, LAYOUT)
+
         self._process = None
         self.polish = False
         self._init_text(cfg.polish)
@@ -43,6 +51,39 @@ class Engine:
         if not names:
             raise SystemExit(f"no bundle found under {layout.models}\n  train/export one first, or pass --bundle PATH")
         return max(names, key=lambda n: (layout.models / n / "config.json").stat().st_mtime)
+
+    # -- word level (matos.words) -------------------------------------------------------------------------------------
+    POSE_EVERY_MS = 66                        # how often the phone may run its pose model (~15 Hz); it slows itself down if it is slow
+
+    def _init_words(self, cfg: Settings, layout) -> None:
+        """Load the word bundle.  Asked for explicitly (--word-bundle / --mode words) -> any problem is fatal; otherwise a missing or
+        broken word bundle only means: letters only, exactly like before."""
+        explicit = bool(cfg.word_bundle) or cfg.mode == "words"
+        try:
+            from matos.words import holistic as H
+            from matos.words.engine import WordBundle, WordClassifier
+            from matos.words.hybrid import FrameObs, HybridDecoder, HybridParams
+            from matos.words.segmenter import SegParams
+
+            names = layout.list_word_bundles()
+            spec = cfg.word_bundle or (max(names, key=lambda n: (layout.words / n / "config.json").stat().st_mtime) if names else None)
+            if spec is None:
+                raise SystemExit(f"no word bundle found under {layout.words}\n  train one:  python -m matos words-train --shards wshards --out words1")
+            wb = WordBundle(spec, log=self.log)
+            wb.predict(np.random.default_rng(0).normal(0, 1, (1, wb.seq_len, wb.n_features)).astype(np.float32))      # warm-up
+            pick = lambda cls, d: cls(**{k: v for k, v in (d or {}).items() if k in cls.__dataclass_fields__})  # noqa: E731
+            self.word_bundle, self.words = wb, WordClassifier(wb)
+            self.seg_params, self.hybrid_params = pick(SegParams, wb.cfg.get("segmenter")), pick(HybridParams, wb.cfg.get("hybrid"))
+            self.H, self.FrameObs, self.HybridDecoder = H, FrameObs, HybridDecoder
+            self.mode = cfg.mode
+        except SystemExit as ex:
+            if explicit:
+                raise
+            self.log(f"[words] {str(ex.code or ex).splitlines()[0]}  -> letters only")
+        except Exception as ex:  # noqa: BLE001
+            if explicit:
+                raise SystemExit(f"cannot start the word engine: {type(ex).__name__}: {ex}")
+            self.log(f"[words] word engine unavailable ({type(ex).__name__}: {str(ex).splitlines()[0][:160]}) -> letters only")
 
     # -- text stage (autocorrect [+ T5]) ----------------------------------------------------------------------------
     def _init_text(self, polish: bool):
@@ -84,13 +125,62 @@ class Engine:
             self.log(f"[text] repeated letters: {info['repeat_fixes']}")
         return (final or corrected or raw), info
 
+    def correct_tokens(self, tokens: List[Tuple[str, str]]) -> Tuple[str, dict]:
+        """BLOCKING.  tokens = [("sign", "THANK YOU"), ("spell", "LOKY"), ...] -> (text, info).
+        Pure fingerspelling takes the old path unchanged.  Otherwise each run of fingerspelled chunks is autocorrected on its own (the
+        dictionary search works per chunk), signed words are already words and go in verbatim, and the T5 stage - which was fine-tuned
+        on exactly this kind of ASL gloss - polishes the whole sentence."""
+        if not any(k == "sign" for k, _ in tokens):
+            return self.correct([t for _, t in tokens])
+        words: List[str] = []
+        info: dict = {}
+        i = 0
+        while i < len(tokens):
+            if tokens[i][0] == "sign":
+                words.append(tokens[i][1])
+                i += 1
+                continue
+            j = i
+            while j < len(tokens) and tokens[j][0] == "spell":
+                j += 1
+            chunks = [t for _, t in tokens[i:j]]
+            fixed = chunks
+            if self._process is not None:
+                try:
+                    corrected, _f, _c, inf = self._process(chunks, polish=False, squeeze=self.squeeze)
+                    fixed = corrected.split() or chunks
+                    if inf.get("repeat_fixes"):
+                        info.setdefault("repeat_fixes", {}).update(inf["repeat_fixes"])
+                except Exception as ex:  # noqa: BLE001
+                    self.log(f"[text] correction failed for {chunks!r}: {type(ex).__name__}: {ex}")
+            words += fixed
+            i = j
+        sentence = " ".join(words)
+        if self.polish:
+            try:
+                from matos.text.t5_polish import grammar_polish
+
+                final, source, pinfo = grammar_polish(sentence, [t for _, t in tokens])
+                info.update(polish_source=source, **pinfo)
+                return final or sentence, info
+            except BaseException as ex:  # noqa: BLE001
+                self.log(f"[text] T5 polish failed ({type(ex).__name__}) -> unpolished")
+        return sentence, info
+
     # -- per frame ----------------------------------------------------------------------------------------------------
     def predict(self, norm: np.ndarray) -> np.ndarray:
         return self.bundle.predict(norm)
 
     def new_decoder(self):
-        return self.LetterDecoder(self.params, self.verifier)
+        if self.words is None:
+            return self.LetterDecoder(self.params, self.verifier)
+        return self.HybridDecoder(self.params, self.verifier, self.words, self.seg_params, self.hybrid_params, self.mode)
 
     def info(self) -> dict:
-        return dict(bundle=str(self.bundle_name), engine=self.bundle.engine.name, features=self.bundle.fs,
-                    text_mode=self.text_mode, text_stage=self.text_stage, repeats=self.squeeze, mirror=self.mirror)
+        d = dict(bundle=str(self.bundle_name), engine=self.bundle.engine.name, features=self.bundle.fs,
+                 text_mode=self.text_mode, text_stage=self.text_stage, repeats=self.squeeze, mirror=self.mirror,
+                 words=self.words is not None, mode=self.mode)
+        if self.words is not None:
+            d.update(word_bundle=self.word_bundle.name, vocab=len(self.word_bundle.classes), word_engine=self.word_bundle.engine.name,
+                     pose_ms=self.POSE_EVERY_MS)
+        return d

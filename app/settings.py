@@ -39,6 +39,8 @@ class Settings:
     host: str = "0.0.0.0"
     port: int = 8000
     bundle: Optional[str] = None        # None -> newest bundle found under training/models
+    word_bundle: Optional[str] = None   # None -> the newest bundle in training/models/words (if there is one)
+    mode: str = "auto"                  # auto: signed words + fingerspelling | letters: the letter engine only | words: signs only
     engine: str = "auto"                # auto | opencv | ort   (same meaning as `python -m matos live --engine`)
     mirror: Optional[bool] = None       # None -> matos.config.CAMERA_MIRROR (what the model was trained with)
     text_mode: str = "sentences"        # sentences: autocorrected sentence after a pause | words: every finished word at once

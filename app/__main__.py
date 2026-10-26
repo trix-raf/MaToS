@@ -19,6 +19,11 @@ def _banner(cfg: Settings, engine, ips, public_url=None):
     print("\n" + "=" * 72)
     print(f"  MaToS bridge ready   bundle: {engine.bundle_name}   engine: {engine.bundle.engine.name}")
     print(f"  text: mode={engine.text_mode}  stage={engine.text_stage}   repeats={'on' if engine.squeeze else 'off'}   mirror={engine.mirror}")
+    if engine.words is not None:
+        print(f"  words: ON   bundle: {engine.word_bundle.name} ({len(engine.word_bundle.classes)} signs, {engine.word_bundle.engine.name})   "
+              f"mode={engine.mode}   (the phone also runs a pose model for this)")
+    else:
+        print("  words: off (letters only)   train a word bundle:  python -m matos words-train --shards wshards --out words1")
     if public_url:
         print("  open on the phone (ANY network - mobile data works too):")
     else:
@@ -54,6 +59,11 @@ def main(argv=None) -> int:
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--bundle", help="bundle name/path as for `python -m matos live --bundle` (default: newest under training/models)")
     ap.add_argument("--engine", default="auto", choices=["auto", "opencv", "ort"])
+    ap.add_argument("--word-bundle", help="a word bundle (models/words/NAME): signed words on top of the letters "
+                                          "(default: the newest one in training/models/words, if there is any)")
+    ap.add_argument("--mode", default="auto", choices=["auto", "letters", "words"],
+                    help="auto: signed words AND fingerspelling (default; plain letters when there is no word bundle) | "
+                         "letters: the old letter engine only | words: signs only.  The phone can switch it live.")
     ap.add_argument("--text-mode", default="sentences", choices=["sentences", "words"],
                     help="sentences: autocorrected sentence after a ~1.5 s pause (default) | words: each word as soon as it ends, uncorrected")
     ap.add_argument("--polish", action="store_true", help="T5 grammar polish on sentences (needs models/asl_t5_onnx_opencv)")
@@ -74,6 +84,7 @@ def main(argv=None) -> int:
 
     key = None if a.no_auth else (a.key or os.environ.get("MATOS_KEY") or (secrets.token_urlsafe(12) if a.ngrok else None))
     cfg = Settings(host=a.host or ("127.0.0.1" if a.ngrok else "0.0.0.0"), port=a.port, bundle=a.bundle, engine=a.engine,
+                   word_bundle=a.word_bundle, mode=a.mode,
                    mirror=False if a.no_mirror else None, text_mode=a.text_mode, polish=a.polish, squeeze=not a.no_squeeze,
                    https=not (a.no_https or a.ngrok),       # ngrok brings its own valid certificate: plain http locally
                    frontend=a.frontend, training=a.training, qr=not a.no_qr,

@@ -31,6 +31,7 @@ Reads that cannot find anything stop with a message that lists what DOES exist -
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Union
@@ -40,6 +41,14 @@ from matos.config import HAND_MODEL_FILE
 T5_DIR_NAME = "asl_t5_onnx_opencv"
 T5_FILES = ("encoder_model.onnx", "decoder_model.onnx", "tokenizer.json")      # a folder with these is a usable T5 export
 PathLike = Union[str, "os.PathLike[str]"]
+
+
+def _is_word_cfg(cfg: Path) -> bool:
+    """config.json of a WORD bundle (models/words/...): the letter side must never pick one up as 'the newest bundle'."""
+    try:
+        return json.loads(cfg.read_text(encoding="utf-8")).get("task") == "words"
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def _norm(spec: PathLike) -> str:
@@ -88,7 +97,8 @@ class Layout:
     # -- validity ---------------------------------------------------------------------------------------------------
     @staticmethod
     def is_bundle(p: Path) -> bool:
-        return (p / "config.json").is_file()
+        cfg = p / "config.json"
+        return cfg.is_file() and not _is_word_cfg(cfg)
 
     @staticmethod
     def is_shard_dir(p: Path) -> bool:
@@ -247,6 +257,106 @@ class Layout:
     def t5_model(self, spec: Optional[PathLike] = None) -> Optional[Path]:
         """the folder with encoder_model.onnx + decoder_model.onnx + tokenizer.json for --polish, or None."""
         return _first(self.t5_candidates(spec), self.is_t5_dir)
+
+
+    # -- word (sign) level: models/words/<name>/ (bundles) and models/wshards/ (landmark shards) -----------------------------
+    @property
+    def words(self) -> Path:
+        return self.models / "words"
+
+    @property
+    def wshards(self) -> Path:
+        return self.models / "wshards"
+
+    @staticmethod
+    def is_word_bundle(p: Path) -> bool:
+        cfg = p / "config.json"
+        return cfg.is_file() and _is_word_cfg(cfg)
+
+    @staticmethod
+    def is_wshard_dir(p: Path) -> bool:
+        return p.is_dir() and any(p.glob("wshard_*.npz"))
+
+    def list_word_bundles(self) -> List[str]:
+        return [d.name for d in sorted(self.words.iterdir()) if d.is_dir() and self.is_word_bundle(d)] if self.words.is_dir() else []
+
+    def list_wshards(self) -> List[str]:
+        found = ["wshards"] if self.is_wshard_dir(self.wshards) else []
+        if self.wshards.is_dir():
+            found += [f"wshards/{d.name}" for d in sorted(self.wshards.iterdir()) if self.is_wshard_dir(d)]
+        return found
+
+    def word_bundle_candidates(self, spec: PathLike) -> List[Path]:
+        s = _norm(spec)
+        if _explicit(s):
+            return [Path(s).expanduser()]
+        parts = s.split("/")
+        if len(parts) == 1:
+            return [self.words / s, self.models / s, Path.cwd() / s]
+        out = [Path.cwd() / s, self.root / s, self.models / s]
+        if parts[0] == "models":
+            out.append(self.models / "/".join(parts[1:]))
+        return out
+
+    def find_word_bundle(self, spec: PathLike) -> Path:
+        p = _first(self.word_bundle_candidates(spec), self.is_word_bundle)
+        if p is None:
+            have = self.list_word_bundles()
+            raise SystemExit(
+                f"word bundle '{spec}' not found (a word bundle is a folder whose config.json says task = words).\n"
+                f"  looked in: {', '.join(str(c) for c in self.word_bundle_candidates(spec))}\n"
+                f"  word bundles available: {', '.join(have) if have else 'none yet - train one: python -m matos words-train --shards wshards --out words1'}")
+        return p
+
+    def wshard_candidates(self, spec: PathLike) -> List[Path]:
+        s = _norm(spec)
+        if _explicit(s):
+            return [Path(s).expanduser()]
+        parts = s.split("/")
+        if len(parts) == 1:
+            if s == "wshards":
+                return [self.wshards, Path.cwd() / s]
+            return [self.wshards / s, self.models / s, Path.cwd() / s]
+        out = [Path.cwd() / s, self.root / s, self.models / s]
+        if parts[0] == "models":
+            out.append(self.models / "/".join(parts[1:]))
+        return out
+
+    def find_wshards(self, spec: PathLike) -> Path:
+        p = _first(self.wshard_candidates(spec), self.is_wshard_dir)
+        if p is None:
+            have = self.list_wshards()
+            raise SystemExit(
+                f"no word shards found for '{spec}' (a word-shard folder contains wshard_<source>_<n>.npz).\n"
+                f"  looked in: {', '.join(str(c) for c in self.wshard_candidates(spec))}\n"
+                f"  word shards available: {', '.join(have) if have else 'none yet - run: python -m matos words-extract --src NAME=FOLDER --out wshards'}")
+        return p
+
+    def out_word_bundle(self, spec: PathLike) -> Path:
+        s = _norm(spec)
+        if _explicit(s):
+            return Path(s).expanduser()
+        parts = s.split("/")
+        if parts[0] == "models" and len(parts) > 1:
+            return self.models / "/".join(parts[1:])
+        if parts[0] == "words" and len(parts) > 1:
+            return self.models / s
+        if len(parts) == 1:
+            return self.words / s
+        return Path(s)
+
+    def out_wshards(self, spec: PathLike) -> Path:
+        s = _norm(spec)
+        if _explicit(s):
+            return Path(s).expanduser()
+        parts = s.split("/")
+        if parts[0] == "models" and len(parts) > 1:
+            return self.models / "/".join(parts[1:])
+        if parts[0] == "wshards":
+            return self.models / s
+        if len(parts) == 1:
+            return self.wshards / s
+        return Path(s)
 
 
 LAYOUT = Layout()

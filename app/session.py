@@ -4,11 +4,16 @@ HTTP fallback both just call `await session.handle(msg)` and send back whatever 
 client -> server                                                server -> client
   {type:"hello"}                                                  {type:"ready", ...engine info}
   {type:"start"}  new camera run (resets the decoder)             {type:"ready", ...}
-  {type:"f", t, w, h, hands:[[63 floats], ...]}  one video frame  {type:"state", hand, top, conf, progress, word}   (throttled)
-  {type:"stop"}   camera off (flushes the last sentence)          {type:"letter", text, conf}
-  {type:"reset"}  user pressed Clear                              {type:"word", text}
+  {type:"f", t, w, h, hands:[[63 floats], ...],                   {type:"state", hand, top, conf, progress, word, seg, mode}  (throttled)
+         pose:[75 floats]?}  one video frame                      {type:"letter", text, conf}
+  {type:"stop"}   camera off (flushes the last sentence)          {type:"word", text}                 a finished FINGERSPELLED word
+  {type:"reset"}  user pressed Clear                              {type:"sign", text, conf, alts}     a recognised SIGNED word
+  {type:"mode", mode:"auto"|"letters"|"words"}                    {type:"sign_miss", text, conf}      a sign the model was not sure about
+                                                                  {type:"mode", mode}
                                                                   {type:"sentence", text, raw}
                                                                   {type:"text", text, kind}   <- what the page appends to the transcript
+`pose` (word engine only): 25 MediaPipe pose points [x, y, visibility] = nose ... hips, sent whenever the phone ran its pose model for this
+frame (~15 Hz); frames without it simply omit the field.
 `t` is the PHONE's clock in seconds since "start" (the decoder is time based; arrival time on the server would
 make wifi jitter look like hand movement).  Landmarks are MediaPipe's raw 0..1 coordinates, NOT mirrored:
 the mirroring that live.py does with cv2.flip(frame, 1) is done here with x -> 1-x (see Session._frame).
@@ -38,6 +43,7 @@ class Session:
         self.total_frames = 0
         self.touched = time.monotonic()
         self.lock = asyncio.Lock()
+        self.mode: Optional[str] = None          # chosen by the client ({type: "mode"}); survives start / reset
 
     # -- dispatch -------------------------------------------------------------------------------------------------
     async def handle(self, msg: dict) -> List[dict]:
@@ -58,6 +64,8 @@ class Session:
             if kind == "reset":
                 self._reset()
                 return []
+            if kind == "mode":
+                return await self._set_mode(msg.get("mode"))
             return []
 
     def _ready(self) -> dict:
@@ -65,20 +73,35 @@ class Session:
 
     def _reset(self):
         self.dec = self.e.new_decoder()
+        if self.mode and hasattr(self.dec, "set_mode"):
+            self.dec.set_mode(self.mode)
         self.last_t, self.last_state_t, self.frames = -1.0, -1e9, 0
+
+    async def _set_mode(self, mode) -> List[dict]:
+        if not hasattr(self.dec, "set_mode") or mode not in ("auto", "letters", "words"):
+            return [{"type": "mode", "mode": getattr(self.dec, "mode", "letters")}]
+        events = self.dec.set_mode(mode, self.last_t if self.frames else 0.0)
+        self.mode = mode
+        return [{"type": "mode", "mode": mode}] + await self._events(events)
 
     # -- one frame ------------------------------------------------------------------------------------------------
     @staticmethod
-    def _pick(hands) -> Optional[np.ndarray]:
-        """several hands: the biggest (closest) one signs - the same rule as matos.landmarks.HandLandmarker."""
-        best, best_size = None, -1.0
-        for h in (hands or [])[:MAX_HANDS]:
+    def _valid_hands(hands) -> List[np.ndarray]:
+        out = []
+        for h in (hands if isinstance(hands, list) else [])[:MAX_HANDS]:
             try:
                 a = np.asarray(h, np.float32).reshape(21, 3)
             except (ValueError, TypeError):
                 continue
-            if not np.isfinite(a).all():
-                continue
+            if np.isfinite(a).all():
+                out.append(a)
+        return out
+
+    @staticmethod
+    def _pick(hands) -> Optional[np.ndarray]:
+        """several hands: the biggest (closest) one signs - the same rule as matos.landmarks.HandLandmarker."""
+        best, best_size = None, -1.0
+        for a in Session._valid_hands(hands):
             size = float(np.ptp(a[:, :2], axis=0).max())
             if size > best_size:
                 best, best_size = a, size
@@ -94,14 +117,21 @@ class Session:
         self.last_t = t
 
         F = self.e.F
-        lm = self._pick(msg.get("hands"))
+        hybrid = self.e.words is not None
+        hands = self._valid_hands(msg.get("hands"))
+        lm = self._pick(hands)
         probs = None
-        if lm is not None:
+        if lm is not None and not (hybrid and self.dec.mode == "words"):         # words only: the letter classifier is not needed
             if self.e.mirror:                                  # == cv2.flip(frame, 1) in live.py (z is unaffected by a flip)
                 lm = lm.copy()
                 lm[:, 0] = 1.0 - lm[:, 0]
             probs = self.e.predict(F.normalize(F.to_pixels(lm, w, h)[None]))[0]      # == live.py, line for line
-        events = self.dec.update(t, probs)
+        if hybrid:
+            # the word path gets the RAW (unmirrored) hands and the pose: it is orientation-agnostic (trained with mirroring)
+            obs = self.e.FrameObs(hands, self.e.H.parse_pose(msg.get("pose")), w, h)
+            events = self.dec.update(t, probs, obs)
+        else:
+            events = self.dec.update(t, probs)
         self.frames += 1
         self.total_frames += 1
 
@@ -109,8 +139,12 @@ class Session:
         if events or t - self.last_state_t >= STATE_EVERY_S:
             self.last_state_t = t
             c, conf = self.dec.top
-            out.insert(0, {"type": "state", "hand": lm is not None, "top": self.e.CLASSES[c] if lm is not None else None,
-                           "conf": round(conf, 3), "progress": round(self.dec.progress(), 3), "word": self.dec.current_word})
+            shown = probs is not None
+            st = {"type": "state", "hand": lm is not None, "top": self.e.CLASSES[c] if shown else None,
+                  "conf": round(conf, 3), "progress": round(self.dec.progress(), 3), "word": self.dec.current_word}
+            if hybrid:
+                st.update(seg=bool(self.dec.signing), mode=self.dec.mode)
+            out.insert(0, st)
         return out
 
     # -- decoder events -> messages ---------------------------------------------------------------------------------
@@ -123,10 +157,22 @@ class Session:
                 out.append({"type": "word", "text": ev.text})
                 if self.e.text_mode == "words":
                     out.append({"type": "text", "text": ev.text, "kind": "word"})
+            elif ev.kind == "sign":
+                out.append({"type": "sign", "text": ev.text, "conf": round(ev.conf, 3), "label": getattr(ev, "label", ""),
+                            "alts": [[a, round(p, 3)] for a, p in (getattr(ev, "alts", None) or [])]})
+                self.log(f"[live] sign: {ev.text} ({ev.conf:.0%})")
+                if self.e.text_mode == "words":
+                    out.append({"type": "text", "text": ev.text, "kind": "sign"})
+            elif ev.kind == "sign_miss":
+                out.append({"type": "sign_miss", "text": ev.text, "conf": round(ev.conf, 3)})
             elif ev.kind == "sentence":
                 raw = " ".join(ev.words)
+                tokens = getattr(ev, "tokens", None)
                 if self.e.text_mode == "sentences":
-                    text, _info = await asyncio.to_thread(self.e.correct, ev.words)    # dictionary search / T5: keep it off the event loop
+                    if tokens:
+                        text, _info = await asyncio.to_thread(self.e.correct_tokens, tokens)    # signs + fingerspelling in one sentence
+                    else:
+                        text, _info = await asyncio.to_thread(self.e.correct, ev.words)    # dictionary search / T5: keep it off the event loop
                     self.log(f"[live] sentence: {raw}  ->  {text}")
                     out.append({"type": "sentence", "text": text, "raw": raw})
                     if text:

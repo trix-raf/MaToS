@@ -11,6 +11,10 @@ models/*.gguf
 models/shards/*
 models/bundles/*
 models/base
+models/results
+models/asl_t5_onnx_opencv_large
+models/asl_t5_large_finetuned
+models/asl_t5_large_onnx_opencv
 !models/shards/.gitkeep
 !models/bundles/.gitkeep
 data/datasets/
@@ -22,3 +26,5 @@ models/asl_t5_onnx_opencv
 legacy/
 
 *.zip
+
+models/
