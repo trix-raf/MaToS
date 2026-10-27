@@ -210,7 +210,7 @@ Names listed there are protected from being "corrected" into other words.
   url     = {http://jmlr.org/papers/v21/20-074.html}
 }
 ```
-- **Unlock the Power of English-ASL with ASLG-PC12** — fine-tuned model
+- **Unlock the Power of English-ASL with ASLG-PC12** — fine-tuned dataset for T5-Small model
   [https://www.kaggle.com/datasets/thedevastator/unlock-the-power-of-english-asl-with-aslg-pc12-c](https://www.kaggle.com/datasets/thedevastator/unlock-the-power-of-english-asl-with-aslg-pc12-c)
 
 - **GrassNoted ASL**
