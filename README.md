@@ -198,9 +198,30 @@ Names listed there are protected from being "corrected" into other words.
 
 - **T5-Small** — Google
   [https://huggingface.co/google-t5/t5-small](https://huggingface.co/google-t5/t5-small)
-
+```bibtex
+@article{2020t5,
+  author  = {Colin Raffel and Noam Shazeer and Adam Roberts and Katherine Lee and Sharan Narang and Michael Matena and Yanqi Zhou and Wei Li and Peter J. Liu},
+  title   = {Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer},
+  journal = {Journal of Machine Learning Research},
+  year    = {2020},
+  volume  = {21},
+  number  = {140},
+  pages   = {1-67},
+  url     = {http://jmlr.org/papers/v21/20-074.html}
+}
+```
 - **Unlock the Power of English-ASL with ASLG-PC12** — fine-tuned model
   [https://www.kaggle.com/datasets/thedevastator/unlock-the-power-of-english-asl-with-aslg-pc12-c](https://www.kaggle.com/datasets/thedevastator/unlock-the-power-of-english-asl-with-aslg-pc12-c)
 
 - **GrassNoted ASL**
-  [https://grassnoted.com/asl](https://grassnoted.com/asl)
+  [https://www.kaggle.com/datasets/grassknoted/asl-alphabet](https://grassnoted.com/asl](https://www.kaggle.com/datasets/grassknoted/asl-alphabet)
+  ```bibtex
+  @misc{akash_nagaraj_2018,
+	title={ASL Alphabet},
+	url={https://www.kaggle.com/dsv/29550},
+	DOI={10.34740/KAGGLE/DSV/29550},
+	publisher={Kaggle},
+	author={Akash Nagaraj},
+	year={2018}
+}
+  ```
