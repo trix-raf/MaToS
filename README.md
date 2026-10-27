@@ -117,7 +117,7 @@ cd MaToS
 python -m app --bundle <BUNDLE> --ngrok --ngrok-token <your authtoken>
 ```
 
-`--ngrok` exposes the server through a public URL; leave it out to run locally.
+`--ngrok` exposes the server through a public URL; leave it out to run locally. You can get your own ngrok key from https://dashboard.ngrok.com/get-started/your-authtoken
 
 ---
 
