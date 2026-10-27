@@ -215,13 +215,13 @@ Names listed there are protected from being "corrected" into other words.
 
 - **GrassNoted ASL**
   [https://www.kaggle.com/datasets/grassknoted/asl-alphabet](https://grassnoted.com/asl](https://www.kaggle.com/datasets/grassknoted/asl-alphabet)
-  ```bibtex
-  @misc{akash_nagaraj_2018,
+```bibtex
+@misc{akash_nagaraj_2018,
 	title={ASL Alphabet},
 	url={https://www.kaggle.com/dsv/29550},
 	DOI={10.34740/KAGGLE/DSV/29550},
 	publisher={Kaggle},
 	author={Akash Nagaraj},
 	year={2018}
-  }
-  ```
+}
+```
